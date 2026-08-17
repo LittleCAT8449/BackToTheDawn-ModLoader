@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>BackToTheDawn.ExampleMod</AssemblyName>
+    <RootNamespace>BackToTheDawn.ExampleMod</RootNamespace>
+    <Version>0.1.0</Version>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BackToTheDawn.ModAPI\BackToTheDawn.ModAPI.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="src\resource\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

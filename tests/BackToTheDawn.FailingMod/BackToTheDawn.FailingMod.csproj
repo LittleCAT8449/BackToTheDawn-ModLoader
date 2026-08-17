@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>BackToTheDawn.FailingMod</AssemblyName>
+    <RootNamespace>BackToTheDawn.FailingMod</RootNamespace>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BackToTheDawn.ModAPI\BackToTheDawn.ModAPI.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+    <None Include="mod.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

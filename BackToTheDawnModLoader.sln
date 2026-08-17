@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackToTheDawn.Loader", "src\BackToTheDawn.Loader\BackToTheDawn.Loader.csproj", "{9255EDB9-7FD9-4282-AF0D-85342A234922}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackToTheDawn.ModAPI", "src\BackToTheDawn.ModAPI\BackToTheDawn.ModAPI.csproj", "{0D39BD77-5EA8-4750-AF12-3C25121443C7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackToTheDawn.ExampleMod", "examples\BackToTheDawn.ExampleMod\BackToTheDawn.ExampleMod.csproj", "{FC1EFA74-5460-4436-B45A-1F9ABF131A34}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9255EDB9-7FD9-4282-AF0D-85342A234922}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9255EDB9-7FD9-4282-AF0D-85342A234922}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9255EDB9-7FD9-4282-AF0D-85342A234922}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9255EDB9-7FD9-4282-AF0D-85342A234922}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0D39BD77-5EA8-4750-AF12-3C25121443C7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0D39BD77-5EA8-4750-AF12-3C25121443C7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0D39BD77-5EA8-4750-AF12-3C25121443C7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0D39BD77-5EA8-4750-AF12-3C25121443C7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FC1EFA74-5460-4436-B45A-1F9ABF131A34}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FC1EFA74-5460-4436-B45A-1F9ABF131A34}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FC1EFA74-5460-4436-B45A-1F9ABF131A34}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FC1EFA74-5460-4436-B45A-1F9ABF131A34}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

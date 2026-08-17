@@ -1,0 +1,10 @@
+{
+  "id": "dev.backtothedawn.failingmod",
+  "name": "Back To The Dawn Failing Test Mod",
+  "version": "0.1.0",
+  "entryAssembly": "BackToTheDawn.FailingMod.dll",
+  "entryType": "BackToTheDawn.FailingMod.FailingModEntry",
+  "dependencies": [
+    "dev.backtothedawn.loader"
+  ]
+}

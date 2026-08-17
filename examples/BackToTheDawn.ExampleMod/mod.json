@@ -1,0 +1,10 @@
+{
+  "id": "dev.backtothedawn.examplemod",
+  "name": "Back To The Dawn Example Mod",
+  "version": "0.1.0",
+  "entryAssembly": "BackToTheDawn.ExampleMod.dll",
+  "entryType": "BackToTheDawn.ExampleMod.ExampleModEntry",
+  "dependencies": [
+    "dev.backtothedawn.loader"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "id": "dev.backtothedawn.dependencymod",
+  "name": "Back To The Dawn Dependency Test Mod",
+  "version": "0.1.0",
+  "entryAssembly": "BackToTheDawn.DependencyMod.dll",
+  "entryType": "BackToTheDawn.DependencyMod.DependencyModEntry",
+  "dependencies": [
+    "dev.backtothedawn.loader",
+    "dev.backtothedawn.examplemod"
+  ]
+}

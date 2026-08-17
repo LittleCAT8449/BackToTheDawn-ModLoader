@@ -1,0 +1,25 @@
+# The repository lives beside a local game installation. Do not commit the game.
+Back To The Dawn.exe
+Back To The Dawn_Data/
+GameAssembly.dll
+UnityPlayer.dll
+UnityCrashHandler64.exe
+baselib.dll
+*.pdf
+
+# BepInEx runtime and generated interop assemblies.
+BepInEx/
+dotnet/
+.tools/
+analysis/
+doorstop_config.ini
+.doorstop_version
+winhttp.dll
+changelog.txt
+
+# Build output and local IDE state.
+**/bin/
+**/obj/
+.vs/
+.idea/
+*.user
