@@ -231,7 +231,8 @@ internal static class TradeSignals
         string source,
         string reason,
         ShopKey? shopKey = null,
-        TradePhase phase = TradePhase.Immediate)
+        TradePhase phase = TradePhase.Immediate,
+        string? lotteryNumber = null)
     {
         var itemKey = itemId > 0
             ? ItemCatalog.ResolveOrCreateKey(itemId)
@@ -247,7 +248,8 @@ internal static class TradeSignals
             (null, null),
             shopId,
             shopKey,
-            phase);
+            phase,
+            lotteryNumber);
 
         state.BeforeItemCount = itemKey is null
             ? 0
@@ -387,7 +389,8 @@ internal static class TradeSignals
                 state.RequestedCount,
                 relationshipDelta,
                 state.TransactionId,
-                TradeStatus.Completed);
+                TradeStatus.Completed,
+                state.LotteryNumber);
 
             RaiseTradeCompleted(
                 state,
@@ -426,7 +429,8 @@ internal static class TradeSignals
         int requestedCount = 0,
         int relationshipDelta = 0,
         long transactionId = 0,
-        TradeStatus status = TradeStatus.Completed)
+        TradeStatus status = TradeStatus.Completed,
+        string? lotteryNumber = null)
     {
         if (!GameContextAdapter.IsGameplayReady || characterId == 0)
         {
@@ -470,7 +474,8 @@ internal static class TradeSignals
                     requestedCount,
                     relationshipDelta,
                     transactionId,
-                    status));
+                    status,
+                    lotteryNumber));
         }
         catch (Exception exception)
         {
@@ -637,7 +642,8 @@ internal static class TradeSignals
             state.CounterpartyName,
             state.Source,
             reason,
-            failureReason);
+            failureReason,
+            state.LotteryNumber);
     }
 
     private static TradeCurrencyKind ResolveCurrency(
@@ -903,7 +909,8 @@ internal static class TradeSignals
             (int? Id, string? Name) counterparty,
             int? shopId = null,
             ShopKey? shopKey = null,
-            TradePhase phase = TradePhase.Immediate)
+            TradePhase phase = TradePhase.Immediate,
+            string? lotteryNumber = null)
         {
             TransactionId = transactionId;
             Kind = kind;
@@ -917,6 +924,7 @@ internal static class TradeSignals
             ShopId = shopId;
             ShopKey = shopKey;
             Phase = phase;
+            LotteryNumber = lotteryNumber;
         }
 
         internal long TransactionId { get; }
@@ -931,6 +939,7 @@ internal static class TradeSignals
         internal int? ShopId { get; }
         internal ShopKey? ShopKey { get; }
         internal TradePhase Phase { get; }
+        internal string? LotteryNumber { get; }
         internal string? ObservedReason { get; set; }
         internal int BeforeItemCount { get; set; }
         internal int BeforeMoney { get; set; }

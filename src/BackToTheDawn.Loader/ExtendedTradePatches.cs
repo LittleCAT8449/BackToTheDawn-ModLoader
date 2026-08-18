@@ -42,24 +42,25 @@ internal static class TvShoppingBuyPatch
     }
 }
 
-[HarmonyPatch(typeof(UI_BuyLotteryTickets), nameof(UI_BuyLotteryTickets.SubmitChipIn))]
+[HarmonyPatch(typeof(UI_BuyLotteryTickets), nameof(UI_BuyLotteryTickets.AddItemLotteryTicket))]
 internal static class LotteryTicketSubmitPatch
 {
     private static void Prefix(
         UI_BuyLotteryTickets __instance,
+        int currentIssue,
         out TradeSignals.SemanticTradeState __state)
     {
-        var itemId = __instance.goodId;
         var shopId = __instance.ShopId != 0 ? __instance.ShopId : 14;
         __state = TradeSignals.BeginShopTrade(
             TradeKind.Lottery,
             shopId,
-            itemId,
+            265,
             1,
             TradeDirection.PlayerBuys,
-            nameof(UI_BuyLotteryTickets.SubmitChipIn),
-            $"BuyLotteryTicket(number={__instance.lotteryTicketNumber})",
-            new ShopKey("backtothedawn", "lottery"));
+            nameof(UI_BuyLotteryTickets.AddItemLotteryTicket),
+            $"BuyLotteryTicket(issue={currentIssue},number={__instance.lotteryTicketNumber})",
+            new ShopKey("backtothedawn", "lottery"),
+            lotteryNumber: __instance.lotteryTicketNumber);
     }
 
     private static void Postfix(TradeSignals.SemanticTradeState __state) =>

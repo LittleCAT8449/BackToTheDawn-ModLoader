@@ -127,7 +127,8 @@ public sealed record TradeTransaction(
     string? CounterpartyName,
     string Source,
     string Reason,
-    string? FailureReason = null) : IGameEvent;
+    string? FailureReason = null,
+    string? LotteryNumber = null) : IGameEvent;
 
 public sealed record TradeStartedEvent(TradeTransaction Transaction) : IGameEvent;
 
@@ -161,4 +162,5 @@ public sealed record TradeDetectedEvent(
     int RequestedCount = 0,
     int RelationshipDelta = 0,
     long TransactionId = 0,
-    TradeStatus Status = TradeStatus.Completed) : IGameEvent;
+    TradeStatus Status = TradeStatus.Completed,
+    string? LotteryNumber = null) : IGameEvent;

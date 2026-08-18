@@ -683,9 +683,10 @@ _subscriptions.Add(ModApi.Events.Subscribe<TradeDetectedEvent>(info =>
         $"itemDelta={info.ItemDelta}, moneyDelta={info.CurrencyDelta}, " +
         $"disciplineDelta={info.DisciplineDelta}, shopId={info.ShopId?.ToString() ?? \"<none>\"}, " +
         $"shopKey={info.ShopKey?.ToString() ?? \"<none>\"}, " +
-        $"phase={info.Phase}, requestedCount={info.RequestedCount}, " +
-        $"relationshipDelta={info.RelationshipDelta}, " +
-        $"reason={info.Reason}, source={info.Source}, direction={info.Direction}, " +
+         $"phase={info.Phase}, requestedCount={info.RequestedCount}, " +
+         $"relationshipDelta={info.RelationshipDelta}, " +
+         $"lotteryNumber={info.LotteryNumber ?? \"<none>\"}, " +
+         $"reason={info.Reason}, source={info.Source}, direction={info.Direction}, " +
         $"counterparty={info.CounterpartyId?.ToString() ?? \"<none>\"}/" +
         $"{info.CounterpartyName ?? \"<unknown>\"}");
 }));
@@ -723,6 +724,10 @@ _subscriptions.Add(ModApi.Events.Subscribe<TradeCompletedEvent>(info =>
 完整交易 ID；语义交易会在入口方法返回后比较真实库存、金钱和纪律变化并合并成一条事件。
 交易事件只读、不可取消；失败事件目前覆盖语义入口抛出的异常，余额不足、售罄和权限限制
 等“方法正常返回但未结算”的细分原因仍需针对具体商店补充。
+
+彩票事务的 `LotteryNumber` 是独立字段，不需要从 `Reason` 文本解析。它来自
+`UI_BuyLotteryTickets.AddItemLotteryTicket` 的实际发票入口；`ItemKey` 为
+`backtothedawn:lottery_ticket`，而彩票点充值等独立金钱变化不会自动并入购票事务。
 游戏内部的 `backtothedawn:money` 伪物品变化会被过滤，金钱只通过 `CurrencyDelta` 报告。
 纪律/表现通过 `DisciplineDelta` 报告；屋顶交易可以在同一事件中同时携带金钱和纪律变化。
 关系值通过 `TradeCurrencyKind.Relationship` 与 `RelationshipDelta` 报告。

@@ -243,9 +243,10 @@ public sealed class ExampleModEntry : IMod
             $"itemDelta={info.ItemDelta}, currency={info.Currency}, " +
             $"currencyDelta={info.CurrencyDelta}, disciplineDelta={info.DisciplineDelta}, " +
             $"shopKey={info.ShopKey?.ToString() ?? "<none>"}, " +
-            $"phase={info.Phase}, requestedCount={info.RequestedCount}, " +
-            $"relationshipDelta={info.RelationshipDelta}, " +
-            $"tx={info.TransactionId}, status={info.Status}, " +
+             $"phase={info.Phase}, requestedCount={info.RequestedCount}, " +
+             $"relationshipDelta={info.RelationshipDelta}, " +
+             $"lotteryNumber={info.LotteryNumber ?? "<none>"}, " +
+             $"tx={info.TransactionId}, status={info.Status}, " +
             $"reason={info.Reason}, " +
             $"source={info.Source}, direction={info.Direction}, " +
             $"counterparty={info.CounterpartyId?.ToString() ?? "<none>"}/" +
@@ -254,18 +255,20 @@ public sealed class ExampleModEntry : IMod
     private void OnTradeStarted(TradeStartedEvent info) =>
         Info(
             $"Trade started: tx={info.Transaction.TransactionId}, " +
-            $"kind={info.Transaction.Kind}, phase={info.Transaction.Phase}, " +
-            $"item={info.Transaction.ItemKey?.ToString() ?? "<none>"}, " +
-            $"shopKey={info.Transaction.ShopKey?.ToString() ?? "<none>"}, " +
-            $"reason={info.Transaction.Reason}.");
+             $"kind={info.Transaction.Kind}, phase={info.Transaction.Phase}, " +
+             $"item={info.Transaction.ItemKey?.ToString() ?? "<none>"}, " +
+             $"shopKey={info.Transaction.ShopKey?.ToString() ?? "<none>"}, " +
+             $"lotteryNumber={info.Transaction.LotteryNumber ?? "<none>"}, " +
+             $"reason={info.Transaction.Reason}.");
 
     private void OnTradeCompleted(TradeCompletedEvent info) =>
         Info(
             $"Trade completed: tx={info.Transaction.TransactionId}, " +
             $"kind={info.Transaction.Kind}, itemDelta={info.Transaction.ItemDelta}, " +
-            $"currency={info.Transaction.Currency}, " +
-            $"currencyDelta={info.Transaction.CurrencyDelta}, " +
-            $"phase={info.Transaction.Phase}.");
+             $"currency={info.Transaction.Currency}, " +
+             $"currencyDelta={info.Transaction.CurrencyDelta}, " +
+             $"lotteryNumber={info.Transaction.LotteryNumber ?? "<none>"}, " +
+             $"phase={info.Transaction.Phase}.");
 
     private void OnTradeFailed(TradeFailedEvent info) =>
         Warning(
