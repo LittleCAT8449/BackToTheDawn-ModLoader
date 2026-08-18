@@ -737,6 +737,23 @@ _subscriptions.Add(ModApi.Events.Subscribe<TradeCompletedEvent>(info =>
 事件只报告主角的变化；物品仍不会暴露 `Thing`、`c_shop` 或物品数字 ID，NPC 的
 `CounterpartyId` 仅用于标识语义 Hook 捕获到的交易对象。
 
+拳赛结算提供专用的 `BetSettledEvent`。Loader 不依赖对话框是否打开，而是监听底层
+`ThingChangeReason.BoxingBetWin` 奖金到账和 `BoxingBetExchange` 下注券扣除：
+
+```csharp
+_subscriptions.Add(ModApi.Events.Subscribe<BetSettledEvent>(info =>
+{
+    context.Logger.Info(
+        $"result={info.Result}, stake={info.Stake}, payout={info.Payout}, " +
+        $"target={info.Bet?.TargetName ?? \"<unknown>\"}, " +
+        $"odds={info.Bet?.Odds?.ToString() ?? \"<none>\"}");
+}));
+```
+
+`BetResult.Won` 只在明确收到 `BoxingBetWin` 时发布；`BetResult.Lost` 只在下注券被
+`BoxingBetExchange` 撕碎且操作成功后发布。下注券详情中的金额、目标和赔率通过
+`TradeBetInfo` 提供，中奖时 `Payout` 为实际到账金额，未中奖时为 `0`。
+
 ### Relationship API
 
 关系值通过只读 API 查询，避免模组直接操作游戏内部的 `CharacterAttribute`：

@@ -103,6 +103,40 @@ public enum TradeStatus
 }
 
 /// <summary>
+/// Optional betting metadata extracted from a boxing or match betting bill.
+/// Values remain nullable because a bill can be observed before its result is
+/// known, or because the game does not expose a matching detail object.
+/// </summary>
+public sealed record TradeBetInfo(
+    int? Stake,
+    int? Payout,
+    bool? Won,
+    string? TargetName,
+    float? Odds);
+
+public enum BetResult
+{
+    Unknown = 0,
+    Won = 1,
+    Lost = 2,
+}
+
+/// <summary>
+/// Raised when a boxing bet is settled. The result is inferred from the
+/// game's explicit payout or ticket-exchange reason, not from a timeout.
+/// </summary>
+public sealed record BetSettledEvent(
+    BetResult Result,
+    int CharacterId,
+    ItemKey TicketKey,
+    TradeBetInfo? Bet,
+    int Stake,
+    int Payout,
+    long TransactionId,
+    string Source,
+    string Reason) : IGameEvent;
+
+/// <summary>
 /// Stable transaction envelope shared by the lifecycle events. A transaction
 /// ID links the semantic method entry with its eventual settlement; it is
 /// process-local and must not be persisted as a game save identifier.
@@ -128,7 +162,8 @@ public sealed record TradeTransaction(
     string Source,
     string Reason,
     string? FailureReason = null,
-    string? LotteryNumber = null) : IGameEvent;
+    string? LotteryNumber = null,
+    TradeBetInfo? Bet = null) : IGameEvent;
 
 public sealed record TradeStartedEvent(TradeTransaction Transaction) : IGameEvent;
 
@@ -163,4 +198,5 @@ public sealed record TradeDetectedEvent(
     int RelationshipDelta = 0,
     long TransactionId = 0,
     TradeStatus Status = TradeStatus.Completed,
-    string? LotteryNumber = null) : IGameEvent;
+    string? LotteryNumber = null,
+    TradeBetInfo? Bet = null) : IGameEvent;

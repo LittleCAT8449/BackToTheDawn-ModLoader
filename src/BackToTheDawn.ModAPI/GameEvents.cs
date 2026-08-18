@@ -23,6 +23,7 @@ public static class GameEvents
     public static event Action<TradeStartedEvent>? TradeStarted;
     public static event Action<TradeCompletedEvent>? TradeCompleted;
     public static event Action<TradeFailedEvent>? TradeFailed;
+    public static event Action<BetSettledEvent>? BetSettled;
     public static event Action<ItemUseBeforeEvent>? ItemUseBefore;
     public static event Action<ItemUseAfterEvent>? ItemUseAfter;
     public static event Action<ModDiscoveredEvent>? ModDiscovered;
@@ -183,6 +184,14 @@ public static class GameEvents
                 handler((TEvent)(object)value);
             TradeFailed += wrapper;
             return new Subscription(() => TradeFailed -= wrapper);
+        }
+
+        if (typeof(TEvent) == typeof(BetSettledEvent))
+        {
+            Action<BetSettledEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            BetSettled += wrapper;
+            return new Subscription(() => BetSettled -= wrapper);
         }
 
         if (typeof(TEvent) == typeof(ItemUseBeforeEvent))
@@ -389,6 +398,9 @@ public static class GameEvents
     internal static void RaiseTradeFailed(TradeTransaction value) =>
         Raise(TradeFailed, new TradeFailedEvent(value), nameof(TradeFailed));
 
+    internal static void RaiseBetSettled(BetSettledEvent value) =>
+        Raise(BetSettled, value, nameof(BetSettled));
+
     internal static ItemUseBeforeEvent RaiseItemUseBefore(ItemUseContext context)
     {
         var value = new ItemUseBeforeEvent(context);
@@ -456,6 +468,7 @@ public static class GameEvents
         TradeStarted = null;
         TradeCompleted = null;
         TradeFailed = null;
+        BetSettled = null;
         ItemUseBefore = null;
         ItemUseAfter = null;
         ModDiscovered = null;

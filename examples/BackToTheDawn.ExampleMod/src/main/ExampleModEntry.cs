@@ -54,6 +54,7 @@ public sealed class ExampleModEntry : IMod
         _subscriptions.Add(ModApi.Events.Subscribe<TradeStartedEvent>(OnTradeStarted));
         _subscriptions.Add(ModApi.Events.Subscribe<TradeCompletedEvent>(OnTradeCompleted));
         _subscriptions.Add(ModApi.Events.Subscribe<TradeFailedEvent>(OnTradeFailed));
+        _subscriptions.Add(ModApi.Events.Subscribe<BetSettledEvent>(OnBetSettled));
         _subscriptions.Add(ModApi.Events.Subscribe<ItemUseBeforeEvent>(OnItemUseBefore));
         _subscriptions.Add(ModApi.Events.Subscribe<ItemUseAfterEvent>(OnItemUseAfter));
         if (_logGameplayState)
@@ -246,6 +247,7 @@ public sealed class ExampleModEntry : IMod
              $"phase={info.Phase}, requestedCount={info.RequestedCount}, " +
              $"relationshipDelta={info.RelationshipDelta}, " +
              $"lotteryNumber={info.LotteryNumber ?? "<none>"}, " +
+             $"bet={FormatBet(info.Bet)}, " +
              $"tx={info.TransactionId}, status={info.Status}, " +
             $"reason={info.Reason}, " +
             $"source={info.Source}, direction={info.Direction}, " +
@@ -259,6 +261,7 @@ public sealed class ExampleModEntry : IMod
              $"item={info.Transaction.ItemKey?.ToString() ?? "<none>"}, " +
              $"shopKey={info.Transaction.ShopKey?.ToString() ?? "<none>"}, " +
              $"lotteryNumber={info.Transaction.LotteryNumber ?? "<none>"}, " +
+             $"bet={FormatBet(info.Transaction.Bet)}, " +
              $"reason={info.Transaction.Reason}.");
 
     private void OnTradeCompleted(TradeCompletedEvent info) =>
@@ -268,12 +271,19 @@ public sealed class ExampleModEntry : IMod
              $"currency={info.Transaction.Currency}, " +
              $"currencyDelta={info.Transaction.CurrencyDelta}, " +
              $"lotteryNumber={info.Transaction.LotteryNumber ?? "<none>"}, " +
+             $"bet={FormatBet(info.Transaction.Bet)}, " +
              $"phase={info.Transaction.Phase}.");
 
     private void OnTradeFailed(TradeFailedEvent info) =>
         Warning(
             $"Trade failed: tx={info.Transaction.TransactionId}, " +
             $"kind={info.Transaction.Kind}, reason={info.Transaction.FailureReason ?? "<unknown>"}.");
+
+    private void OnBetSettled(BetSettledEvent info) =>
+        Info(
+            $"Bet settled: result={info.Result}, ticket={info.TicketKey}, " +
+            $"stake={info.Stake}, payout={info.Payout}, bet={FormatBet(info.Bet)}, " +
+            $"tx={info.TransactionId}, source={info.Source}, reason={info.Reason}.");
 
     private void OnItemUseBefore(ItemUseBeforeEvent info)
     {
@@ -309,6 +319,15 @@ public sealed class ExampleModEntry : IMod
 
     private void OnModInitializationFailed(ModInitializationFailedEvent info) =>
         Warning($"Mod initialization failed: {info.ModId ?? "<unknown>"}: {info.Reason}");
+
+    private static string FormatBet(TradeBetInfo? bet) =>
+        bet is null
+            ? "<none>"
+            : $"stake={bet.Stake?.ToString() ?? "<none>"}," +
+              $"payout={bet.Payout?.ToString() ?? "<none>"}," +
+              $"won={bet.Won?.ToString() ?? "<none>"}," +
+              $"target={bet.TargetName ?? "<none>"}," +
+              $"odds={bet.Odds?.ToString() ?? "<none>"}";
 
     private void Info(string message) => _context?.Logger.Info($"[ExampleMod] {message}");
 

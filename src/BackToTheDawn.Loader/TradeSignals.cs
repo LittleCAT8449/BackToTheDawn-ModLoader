@@ -25,6 +25,11 @@ internal static class TradeSignals
     // arrives so both legs share one TransactionId.
     private static DeferredSemanticTrade? _deferredSemanticTrade;
 
+    // The ticket is the durable link between the initial bet and its later
+    // payout or destruction. Keep only the protagonist's active boxing bet.
+    private static ActiveBoxingBet? _activeBoxingBet;
+    private static BettingTicketOperationState? _pendingBetTicketOperation;
+
     internal static void PublishItem(
         int characterId,
         ItemKey itemKey,
@@ -43,6 +48,12 @@ internal static class TradeSignals
         // make every purchase look like an extra item transaction.
         if (itemKey.Path.Equals("money", StringComparison.OrdinalIgnoreCase))
         {
+            if (reason.Equals("BoxingBetWin", StringComparison.OrdinalIgnoreCase) &&
+                delta > 0)
+            {
+                SettleBoxingBetWon(characterId, delta, source, reason);
+            }
+
             return;
         }
 
@@ -384,7 +395,8 @@ internal static class TradeSignals
                 relationshipDelta,
                 state.TransactionId,
                 TradeStatus.Completed,
-                state.LotteryNumber);
+                state.LotteryNumber,
+                state.Bet);
 
             RaiseTradeCompleted(
                 state,
@@ -396,6 +408,8 @@ internal static class TradeSignals
                 gangContributionDelta,
                 kind,
                 state.ObservedReason ?? state.Reason);
+
+            RememberBoxingBet(state);
         }
         catch (Exception exception)
         {
@@ -492,7 +506,8 @@ internal static class TradeSignals
         int relationshipDelta = 0,
         long transactionId = 0,
         TradeStatus status = TradeStatus.Completed,
-        string? lotteryNumber = null)
+        string? lotteryNumber = null,
+        TradeBetInfo? bet = null)
     {
         if (!GameContextAdapter.IsGameplayReady || characterId == 0)
         {
@@ -537,7 +552,8 @@ internal static class TradeSignals
                     relationshipDelta,
                     transactionId,
                     status,
-                    lotteryNumber));
+                    lotteryNumber,
+                    bet));
         }
         catch (Exception exception)
         {
@@ -705,7 +721,8 @@ internal static class TradeSignals
             state.Source,
             reason,
             failureReason,
-            state.LotteryNumber);
+            state.LotteryNumber,
+            state.Bet);
     }
 
     private static TradeCurrencyKind ResolveCurrency(
@@ -754,7 +771,178 @@ internal static class TradeSignals
     private static bool IsSemanticTradeActive =>
         _semanticTrades is { Count: > 0 };
 
-    internal static bool SemanticTradeActive => IsSemanticTradeActive;
+        internal static bool SemanticTradeActive => IsSemanticTradeActive;
+
+    internal static void ObserveBoxingBet(
+        SemanticTradeState? state,
+        Thing? bill)
+    {
+        if (state is null || bill is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var detail = bill.boxingBill;
+            if (detail is null)
+            {
+                return;
+            }
+
+            state.Bet = new TradeBetInfo(
+                detail.GetBetMoney(),
+                detail.GetWinMoney(),
+                detail.IsBetWin(),
+                detail.GetBetCharacterName(),
+                detail.GetRate());
+        }
+        catch
+        {
+            // Some save states do not hydrate the bill detail until the UI
+            // opens. The ordinary item/currency transaction remains valid.
+        }
+    }
+
+    internal static void BeginBetTicketExchange(
+        Thing? thing,
+        int reduceCount,
+        string reason)
+    {
+        if (thing is null ||
+            thing.id != 261 ||
+            !reason.Equals("BoxingBetExchange", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        TradeBetInfo? bet = null;
+        try
+        {
+            var detail = thing.boxingBill;
+            if (detail is not null)
+            {
+                bet = new TradeBetInfo(
+                    detail.GetBetMoney(),
+                    detail.GetWinMoney(),
+                    detail.IsBetWin(),
+                    detail.GetBetCharacterName(),
+                    detail.GetRate());
+            }
+        }
+        catch
+        {
+            // Fall back to the metadata captured when the ticket was created.
+        }
+
+        var active = _activeBoxingBet;
+        _pendingBetTicketOperation = new BettingTicketOperationState(
+            CharacterManage.protagonistAttribute?.id ?? 0,
+            ItemCatalog.ResolveOrCreateKey(261),
+            Math.Max(reduceCount, 1),
+            bet ?? active?.Bet,
+            active?.TransactionId ?? 0,
+            nameof(ThingPackage.ReduceThingCount),
+            reason);
+    }
+
+    internal static void CompleteBetTicketExchange(bool succeeded)
+    {
+        var state = _pendingBetTicketOperation;
+        _pendingBetTicketOperation = null;
+        if (state is null || !succeeded || state.CharacterId == 0)
+        {
+            return;
+        }
+
+        var active = _activeBoxingBet;
+        if (active?.Result is BetResult.Won or BetResult.Lost)
+        {
+            _activeBoxingBet = null;
+            return;
+        }
+
+        var bet = NormalizeBet(state.Bet, BetResult.Lost, 0);
+        GameEvents.RaiseBetSettled(
+            new BetSettledEvent(
+                BetResult.Lost,
+                state.CharacterId,
+                state.TicketKey,
+                bet,
+                bet?.Stake ?? 0,
+                0,
+                state.TransactionId,
+                state.Source,
+                state.Reason));
+        _activeBoxingBet = null;
+    }
+
+    private static void SettleBoxingBetWon(
+        int characterId,
+        int payout,
+        string source,
+        string reason)
+    {
+        if (characterId == 0 || payout <= 0)
+        {
+            return;
+        }
+
+        var active = _activeBoxingBet;
+        if (active?.Result is BetResult.Won or BetResult.Lost)
+        {
+            return;
+        }
+
+        var bet = NormalizeBet(active?.Bet, BetResult.Won, payout);
+        GameEvents.RaiseBetSettled(
+            new BetSettledEvent(
+                BetResult.Won,
+                characterId,
+                ItemCatalog.ResolveOrCreateKey(261),
+                bet,
+                bet?.Stake ?? 0,
+                payout,
+                active?.TransactionId ?? 0,
+                source,
+                reason));
+
+        if (active is not null)
+        {
+            active.Result = BetResult.Won;
+        }
+    }
+
+    private static void RememberBoxingBet(SemanticTradeState state)
+    {
+        if (state.Bet is null ||
+            state.ItemKey?.Path.Equals("boxing_bet_bill", StringComparison.OrdinalIgnoreCase) != true)
+        {
+            return;
+        }
+
+        _activeBoxingBet = new ActiveBoxingBet(
+            state.TransactionId,
+            state.Bet,
+            BetResult.Unknown);
+    }
+
+    private static TradeBetInfo? NormalizeBet(
+        TradeBetInfo? bet,
+        BetResult result,
+        int payout)
+    {
+        if (bet is null)
+        {
+            return null;
+        }
+
+        return bet with
+        {
+            Payout = payout,
+            Won = result == BetResult.Won,
+        };
+    }
 
     internal static void ObserveSemanticRelationshipCost(int cost)
     {
@@ -957,6 +1145,8 @@ internal static class TradeSignals
         _semanticTrades?.Clear();
         _pendingSettlement = null;
         _deferredSemanticTrade = null;
+        _activeBoxingBet = null;
+        _pendingBetTicketOperation = null;
     }
 
     internal sealed class SemanticTradeState
@@ -1003,6 +1193,7 @@ internal static class TradeSignals
         internal ShopKey? ShopKey { get; }
         internal TradePhase Phase { get; }
         internal string? LotteryNumber { get; }
+        internal TradeBetInfo? Bet { get; set; }
         internal string? ObservedReason { get; set; }
         internal int BeforeItemCount { get; set; }
         internal int BeforeMoney { get; set; }
@@ -1022,6 +1213,32 @@ internal static class TradeSignals
         int Delta,
         string Reason,
         DateTime Timestamp);
+
+    private sealed class ActiveBoxingBet
+    {
+        internal ActiveBoxingBet(
+            long transactionId,
+            TradeBetInfo bet,
+            BetResult result)
+        {
+            TransactionId = transactionId;
+            Bet = bet;
+            Result = result;
+        }
+
+        internal long TransactionId { get; }
+        internal TradeBetInfo Bet { get; }
+        internal BetResult Result { get; set; }
+    }
+
+    internal sealed record BettingTicketOperationState(
+        int CharacterId,
+        ItemKey TicketKey,
+        int Count,
+        TradeBetInfo? Bet,
+        long TransactionId,
+        string Source,
+        string Reason);
 
     private sealed record DeferredSemanticTrade(
         SemanticTradeState State,

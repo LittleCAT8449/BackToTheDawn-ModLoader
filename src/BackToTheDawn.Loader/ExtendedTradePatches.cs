@@ -95,8 +95,13 @@ internal static class BoxingBetPatch
             new ShopKey("backtothedawn", "boxing_betting"));
     }
 
-    private static void Postfix(TradeSignals.SemanticTradeState __state) =>
+    private static void Postfix(TradeSignals.SemanticTradeState __state)
+    {
+        TradeSignals.ObserveBoxingBet(
+            __state,
+            ActionBoxingBet.GetCurrentBetBillThing());
         TradeSignals.DeferNpcTrade(__state);
+    }
 
     private static Exception? Finalizer(
         TradeSignals.SemanticTradeState __state,
@@ -114,7 +119,9 @@ internal static class BoxingBetPatch
 [HarmonyPatch(typeof(ActionBoxingBet_ExchangePast), nameof(ActionBoxingBet_ExchangePast.DoExchangePassBill))]
 internal static class BoxingBetExchangePatch
 {
-    private static void Prefix(out TradeSignals.SemanticTradeState __state) =>
+    private static void Prefix(out TradeSignals.SemanticTradeState __state)
+    {
+        var bill = ActionBoxingBet_ExchangePast.currentSelectExchangeBoxbill;
         __state = TradeSignals.BeginShopTrade(
             TradeKind.Betting,
             null,
@@ -124,6 +131,8 @@ internal static class BoxingBetExchangePatch
             nameof(ActionBoxingBet_ExchangePast.DoExchangePassBill),
             "BoxingBetExchange",
             new ShopKey("backtothedawn", "boxing_betting"));
+        TradeSignals.ObserveBoxingBet(__state, bill);
+    }
 
     private static void Postfix(TradeSignals.SemanticTradeState __state) =>
         TradeSignals.EndNpcTrade(__state);

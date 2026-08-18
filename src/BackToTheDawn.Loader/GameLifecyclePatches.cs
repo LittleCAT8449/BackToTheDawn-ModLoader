@@ -391,19 +391,28 @@ internal static class ThingPackageReduceThingCountPatch
         Thing thing,
         int reduceCount,
         ThingChangeReason reason,
-        out GameContextAdapter.InventoryOperationState? __state) =>
+        out GameContextAdapter.InventoryOperationState? __state)
+    {
         __state = GameContextAdapter.BeginInventoryOperation(
             __instance,
             thing?.id ?? 0,
             -reduceCount,
             nameof(ThingPackage.ReduceThingCount),
             reason.ToString());
+        TradeSignals.BeginBetTicketExchange(
+            thing,
+            reduceCount,
+            reason.ToString());
+    }
 
     private static void Postfix(
         ThingPackage __instance,
         bool __result,
-        GameContextAdapter.InventoryOperationState? __state) =>
+        GameContextAdapter.InventoryOperationState? __state)
+    {
         GameContextAdapter.PublishInventoryChanged(__instance, __state, __result);
+        TradeSignals.CompleteBetTicketExchange(__result);
+    }
 }
 
 [HarmonyPatch(typeof(ThingPackage), nameof(ThingPackage.RemoveThing),
