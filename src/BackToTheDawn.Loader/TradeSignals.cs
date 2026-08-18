@@ -20,6 +20,11 @@ internal static class TradeSignals
     // reason-scoped settlement so the semantic order can still include it.
     private static PendingSettlement? _pendingSettlement;
 
+    // A few action methods add the bet/order item first and debit money in a
+    // follow-up callback. Keep the semantic state alive until that callback
+    // arrives so both legs share one TransactionId.
+    private static DeferredSemanticTrade? _deferredSemanticTrade;
+
     internal static void PublishItem(
         int characterId,
         ItemKey itemKey,
@@ -84,6 +89,11 @@ internal static class TradeSignals
         string source,
         string reason)
     {
+        if (TryCompleteDeferredTrade(characterId, delta))
+        {
+            return;
+        }
+
         if (IsSemanticTradeActive)
         {
             ObserveSemanticReason(reason);
@@ -275,23 +285,7 @@ internal static class TradeSignals
         }
 
         state.Completed = true;
-        var stack = _semanticTrades;
-        if (stack is not null && stack.Count > 0)
-        {
-            if (ReferenceEquals(stack.Peek(), state))
-            {
-                stack.Pop();
-            }
-            else
-            {
-                var remaining = stack.Where(value => !ReferenceEquals(value, state)).Reverse().ToArray();
-                stack.Clear();
-                foreach (var value in remaining)
-                {
-                    stack.Push(value);
-                }
-            }
-        }
+        var stack = RemoveSemanticTrade(state);
 
         if (!succeeded)
         {
@@ -407,6 +401,74 @@ internal static class TradeSignals
         {
             Plugin.Logger?.LogError($"[TradeHook] Failed to complete semantic trade: {exception}");
         }
+    }
+
+    /// <summary>
+    /// Keeps a semantic transaction open across a game callback that debits
+    /// money after the original action method has returned.
+    /// </summary>
+    internal static void DeferNpcTrade(SemanticTradeState? state)
+    {
+        if (state is null || state.Completed)
+        {
+            return;
+        }
+
+        RemoveSemanticTrade(state);
+        _deferredSemanticTrade = new DeferredSemanticTrade(state, DateTime.UtcNow);
+    }
+
+    private static bool TryCompleteDeferredTrade(int characterId, int delta)
+    {
+        var deferred = _deferredSemanticTrade;
+        if (deferred is null)
+        {
+            return false;
+        }
+
+        if (DateTime.UtcNow - deferred.Timestamp > TimeSpan.FromSeconds(2))
+        {
+            _deferredSemanticTrade = null;
+            EndNpcTrade(deferred.State);
+            return false;
+        }
+
+        if (characterId != CharacterManage.protagonistAttribute?.id || delta == 0)
+        {
+            return false;
+        }
+
+        _deferredSemanticTrade = null;
+        EndNpcTrade(deferred.State);
+        return true;
+    }
+
+    private static Stack<SemanticTradeState>? RemoveSemanticTrade(
+        SemanticTradeState state)
+    {
+        var stack = _semanticTrades;
+        if (stack is null || stack.Count == 0)
+        {
+            return stack;
+        }
+
+        if (ReferenceEquals(stack.Peek(), state))
+        {
+            stack.Pop();
+            return stack;
+        }
+
+        var remaining = stack
+            .Where(value => !ReferenceEquals(value, state))
+            .Reverse()
+            .ToArray();
+        stack.Clear();
+        foreach (var value in remaining)
+        {
+            stack.Push(value);
+        }
+
+        return stack;
     }
 
     private static void Publish(
@@ -894,6 +956,7 @@ internal static class TradeSignals
         _nextTransactionId = 0;
         _semanticTrades?.Clear();
         _pendingSettlement = null;
+        _deferredSemanticTrade = null;
     }
 
     internal sealed class SemanticTradeState
@@ -958,5 +1021,9 @@ internal static class TradeSignals
         TradeCurrencyKind Currency,
         int Delta,
         string Reason,
+        DateTime Timestamp);
+
+    private sealed record DeferredSemanticTrade(
+        SemanticTradeState State,
         DateTime Timestamp);
 }

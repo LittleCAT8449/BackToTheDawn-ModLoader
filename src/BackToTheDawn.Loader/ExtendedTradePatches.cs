@@ -96,7 +96,7 @@ internal static class BoxingBetPatch
     }
 
     private static void Postfix(TradeSignals.SemanticTradeState __state) =>
-        TradeSignals.EndNpcTrade(__state);
+        TradeSignals.DeferNpcTrade(__state);
 
     private static Exception? Finalizer(
         TradeSignals.SemanticTradeState __state,
