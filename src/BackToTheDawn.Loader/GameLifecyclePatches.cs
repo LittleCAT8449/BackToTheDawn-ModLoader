@@ -55,6 +55,14 @@ internal static class ShowCurrentMapAndCanControlPatch
         GameContextAdapter.InitializeEventBaselines();
         GameEvents.RaiseGameplayReady();
         RuntimeItemCatalog.CaptureOnce();
+        var injectedCount = RuntimeItemInjection.TryInject(Plugin.RuntimeItemInjectionEnabled);
+        if (RuntimeItemInjection.MarkRuntimeReady())
+        {
+            GameEvents.RaiseItemRuntimeReady(
+                ItemCatalog.All.Count,
+                injectedCount,
+                Plugin.RuntimeItemInjectionEnabled);
+        }
     }
 }
 
@@ -90,8 +98,34 @@ internal static class ThingPackageChangeEnergyPatch
 [HarmonyPatch(typeof(ThingPackage), nameof(ThingPackage.ChangeMoney))]
 internal static class ThingPackageChangeMoneyPatch
 {
-    private static void Postfix(ThingPackage __instance) =>
+    private static void Postfix(
+        ThingPackage __instance,
+        int count,
+        ThingChangeReason reason)
+    {
         GameContextAdapter.PublishPlayerIfChanged(__instance, nameof(ThingPackage.ChangeMoney));
+        TradeSignals.PublishMoney(
+            __instance.cId,
+            count,
+            nameof(ThingPackage.ChangeMoney),
+            reason.ToString());
+    }
+}
+
+[HarmonyPatch(typeof(ThingPackage), nameof(ThingPackage.ChangeFriend))]
+internal static class ThingPackageChangeFriendPatch
+{
+    private static void Postfix(
+        ThingPackage __instance,
+        int count,
+        ThingChangeReason reason)
+    {
+        TradeSignals.PublishRelationship(
+            __instance.cId,
+            count,
+            nameof(ThingPackage.ChangeFriend),
+            reason.ToString());
+    }
 }
 
 [HarmonyPatch(typeof(ThingPackage), nameof(ThingPackage.ChangeHealthy))]
@@ -146,8 +180,252 @@ internal static class ThingPackageSetAttributePatch
 [HarmonyPatch(typeof(CharacterAttribute), nameof(CharacterAttribute.UseItem))]
 internal static class CharacterAttributeUseItemPatch
 {
-    private static void Postfix(CharacterAttribute __instance, int itemId, int useCount) =>
-        GameContextAdapter.PublishPlayerItemUsed(__instance, itemId, useCount);
+    private static bool Prefix(
+        CharacterAttribute __instance,
+        int itemId,
+        ref int useCount,
+        out GameContextAdapter.ItemUseInvocationState? __state) =>
+        GameContextAdapter.TryBeginItemUse(__instance, itemId, ref useCount, out __state);
+
+    private static void Postfix(
+        CharacterAttribute __instance,
+        int itemId,
+        int useCount,
+        GameContextAdapter.ItemUseInvocationState? __state) =>
+        GameContextAdapter.PublishItemUseCompleted(
+            __instance,
+            itemId,
+            useCount,
+            __state,
+            package: __instance.thingPackage);
+}
+
+// The inventory layer can consume the Thing before CharacterAttribute.UseItem
+// is reached. Intercept both ThingPackage entry points so a cancelled Mod
+// event prevents the count from being reduced in the first place.
+[HarmonyPatch(typeof(ThingPackage), nameof(ThingPackage.UseThing))]
+internal static class ThingPackageUseThingPatch
+{
+    private static bool Prefix(
+        ThingPackage __instance,
+        Thing thing,
+        out GameContextAdapter.ItemUseInvocationState? __state)
+    {
+        var useCount = 1;
+        return GameContextAdapter.TryBeginItemUse(
+            __instance,
+            thing,
+            ref useCount,
+            out __state,
+            nameof(ThingPackage.UseThing));
+    }
+
+    private static void Postfix(
+        ThingPackage __instance,
+        Thing thing,
+        bool __result,
+        GameContextAdapter.ItemUseInvocationState? __state)
+    {
+        if (__state is null || __instance.attribute is null || thing is null)
+        {
+            return;
+        }
+
+        GameContextAdapter.PublishItemUseCompleted(
+            __instance.attribute,
+            thing.id,
+            1,
+            __state,
+            __result,
+            __instance);
+    }
+}
+
+[HarmonyPatch(typeof(ThingPackage), nameof(ThingPackage.UseBatchThing))]
+internal static class ThingPackageUseBatchThingPatch
+{
+    private static bool Prefix(
+        ThingPackage __instance,
+        Thing thing,
+        ref int useCount,
+        out GameContextAdapter.ItemUseInvocationState? __state) =>
+        GameContextAdapter.TryBeginItemUse(
+            __instance,
+            thing,
+            ref useCount,
+            out __state,
+            nameof(ThingPackage.UseBatchThing));
+
+    private static void Postfix(
+        ThingPackage __instance,
+        Thing thing,
+        int useCount,
+        bool __result,
+        GameContextAdapter.ItemUseInvocationState? __state)
+    {
+        if (__state is null || __instance.attribute is null || thing is null)
+        {
+            return;
+        }
+
+        GameContextAdapter.PublishItemUseCompleted(
+            __instance.attribute,
+            thing.id,
+            useCount,
+            __state,
+            __result,
+            __instance);
+    }
+}
+
+[HarmonyPatch(typeof(ThingPackage), nameof(ThingPackage.AddItem),
+    new[] { typeof(int), typeof(int), typeof(PlaceType), typeof(ThingChangeReason) })]
+internal static class ThingPackageAddItemPatch
+{
+    private static void Prefix(
+        ThingPackage __instance,
+        int id,
+        int changeCount,
+        ThingChangeReason reason,
+        out GameContextAdapter.InventoryOperationState? __state) =>
+        __state = GameContextAdapter.BeginInventoryOperation(
+            __instance,
+            id,
+            changeCount,
+            nameof(ThingPackage.AddItem),
+            reason.ToString());
+
+    private static void Postfix(
+        ThingPackage __instance,
+        Thing __result,
+        GameContextAdapter.InventoryOperationState? __state) =>
+        GameContextAdapter.PublishInventoryChanged(
+            __instance,
+            __state,
+            __result is not null);
+}
+
+[HarmonyPatch(typeof(ThingPackage), nameof(ThingPackage.AddItemOneByOne),
+    new[] { typeof(int), typeof(int), typeof(PlaceType), typeof(ThingChangeReason) })]
+internal static class ThingPackageAddItemOneByOnePatch
+{
+    private static void Prefix(
+        ThingPackage __instance,
+        int id,
+        int addCount,
+        ThingChangeReason reason,
+        out GameContextAdapter.InventoryOperationState? __state) =>
+        __state = GameContextAdapter.BeginInventoryOperation(
+            __instance,
+            id,
+            addCount,
+            nameof(ThingPackage.AddItemOneByOne),
+            reason.ToString());
+
+    private static void Postfix(
+        ThingPackage __instance,
+        GameContextAdapter.InventoryOperationState? __state) =>
+        GameContextAdapter.PublishInventoryChanged(__instance, __state, false);
+}
+
+[HarmonyPatch(typeof(ThingPackage), nameof(ThingPackage.ReduceItem),
+    new[] { typeof(int), typeof(int), typeof(ThingChangeReason), typeof(bool) })]
+internal static class ThingPackageReduceItemPatch
+{
+    private static void Prefix(
+        ThingPackage __instance,
+        int id,
+        int reduceCount,
+        ThingChangeReason reason,
+        out GameContextAdapter.InventoryOperationState? __state) =>
+        __state = GameContextAdapter.BeginInventoryOperation(
+            __instance,
+            id,
+            -reduceCount,
+            nameof(ThingPackage.ReduceItem),
+            reason.ToString());
+
+    private static void Postfix(
+        ThingPackage __instance,
+        int __result,
+        GameContextAdapter.InventoryOperationState? __state) =>
+        GameContextAdapter.PublishInventoryChanged(
+            __instance,
+            __state,
+            __result > 0);
+}
+
+[HarmonyPatch(typeof(ThingPackage), nameof(ThingPackage.ReduceItem),
+    new[] { typeof(int), typeof(int), typeof(PlaceType), typeof(ThingChangeReason), typeof(bool) })]
+internal static class ThingPackageReduceItemAtPlacePatch
+{
+    private static void Prefix(
+        ThingPackage __instance,
+        int id,
+        int reduceCount,
+        ThingChangeReason reason,
+        out GameContextAdapter.InventoryOperationState? __state) =>
+        __state = GameContextAdapter.BeginInventoryOperation(
+            __instance,
+            id,
+            -reduceCount,
+            nameof(ThingPackage.ReduceItem),
+            reason.ToString());
+
+    private static void Postfix(
+        ThingPackage __instance,
+        int __result,
+        GameContextAdapter.InventoryOperationState? __state) =>
+        GameContextAdapter.PublishInventoryChanged(
+            __instance,
+            __state,
+            __result > 0);
+}
+
+[HarmonyPatch(typeof(ThingPackage), nameof(ThingPackage.ReduceThingCount),
+    new[] { typeof(Thing), typeof(int), typeof(ThingChangeReason) })]
+internal static class ThingPackageReduceThingCountPatch
+{
+    private static void Prefix(
+        ThingPackage __instance,
+        Thing thing,
+        int reduceCount,
+        ThingChangeReason reason,
+        out GameContextAdapter.InventoryOperationState? __state) =>
+        __state = GameContextAdapter.BeginInventoryOperation(
+            __instance,
+            thing?.id ?? 0,
+            -reduceCount,
+            nameof(ThingPackage.ReduceThingCount),
+            reason.ToString());
+
+    private static void Postfix(
+        ThingPackage __instance,
+        bool __result,
+        GameContextAdapter.InventoryOperationState? __state) =>
+        GameContextAdapter.PublishInventoryChanged(__instance, __state, __result);
+}
+
+[HarmonyPatch(typeof(ThingPackage), nameof(ThingPackage.RemoveThing),
+    new[] { typeof(Thing) })]
+internal static class ThingPackageRemoveThingPatch
+{
+    private static void Prefix(
+        ThingPackage __instance,
+        Thing thing,
+        out GameContextAdapter.InventoryOperationState? __state) =>
+        __state = GameContextAdapter.BeginInventoryOperation(
+            __instance,
+            thing?.id ?? 0,
+            -(thing?.count ?? 0),
+            nameof(ThingPackage.RemoveThing),
+            string.Empty);
+
+    private static void Postfix(
+        ThingPackage __instance,
+        bool __result,
+        GameContextAdapter.InventoryOperationState? __state) =>
+        GameContextAdapter.PublishInventoryChanged(__instance, __state, __result);
 }
 
 [HarmonyPatch(typeof(WidgetItemMiddleTools), nameof(WidgetItemMiddleTools.ArrangePocketItemList))]
@@ -248,19 +526,28 @@ internal static class WidgetItemOperationButtonSubmitDestroyItemPatch
 [HarmonyPatch(typeof(ThingPackage), nameof(ThingPackage.MoveThingPlace), new[] { typeof(Thing), typeof(PlaceType) })]
 internal static class ThingPackageMoveThingPlacePatch
 {
-    private static void Prefix(Thing thing, out PlaceType __state)
-    {
-        __state = thing?.place?.pt ?? PlaceType.None;
-    }
+    private static void Prefix(
+        ThingPackage __instance,
+        Thing thing,
+        out GameContextAdapter.InventoryMoveState? __state) =>
+        __state = GameContextAdapter.BeginInventoryMove(__instance, thing, 0);
 
     private static void Postfix(
         ThingPackage __instance,
         Thing thing,
         PlaceType type,
         bool __result,
-        PlaceType __state)
+        GameContextAdapter.InventoryMoveState? __state)
     {
-        if (!__result || type != PlaceType.Pocket || __state != PlaceType.Equipment)
+        GameContextAdapter.PublishInventoryMoved(
+            __instance,
+            thing,
+            __state,
+            __result,
+            nameof(ThingPackage.MoveThingPlace));
+
+        if (!__result || type != PlaceType.Pocket ||
+            __state?.From.Container != nameof(PlaceType.Equipment))
         {
             return;
         }
@@ -269,8 +556,51 @@ internal static class ThingPackageMoveThingPlacePatch
             __instance,
             thing,
             ItemActionKind.Unequip,
-            1,
+            __state.Count,
             true,
             nameof(ThingPackage.MoveThingPlace));
+    }
+}
+
+[HarmonyPatch(typeof(ThingPackage), nameof(ThingPackage.MoveThingPlace),
+    new[] { typeof(Thing), typeof(PlaceType), typeof(int) })]
+internal static class ThingPackageMoveThingPlaceCountPatch
+{
+    private static void Prefix(
+        ThingPackage __instance,
+        Thing thing,
+        int count,
+        out GameContextAdapter.InventoryMoveState? __state) =>
+        __state = GameContextAdapter.BeginInventoryMove(__instance, thing, count);
+
+    private static void Postfix(
+        ThingPackage __instance,
+        Thing thing,
+        PlaceType type,
+        MoveThingPlaceResult __result,
+        GameContextAdapter.InventoryMoveState? __state)
+    {
+        var succeeded = __result != MoveThingPlaceResult.False &&
+                        __result != MoveThingPlaceResult.NoPlace;
+        GameContextAdapter.PublishInventoryMoved(
+            __instance,
+            thing,
+            __state,
+            succeeded,
+            "ThingPackage.MoveThingPlace(count)");
+
+        if (!succeeded || type != PlaceType.Pocket ||
+            __state?.From.Container != nameof(PlaceType.Equipment))
+        {
+            return;
+        }
+
+        GameContextAdapter.PublishPlayerItemAction(
+            __instance,
+            thing,
+            ItemActionKind.Unequip,
+            __state.Count,
+            true,
+            "ThingPackage.MoveThingPlace(count)");
     }
 }

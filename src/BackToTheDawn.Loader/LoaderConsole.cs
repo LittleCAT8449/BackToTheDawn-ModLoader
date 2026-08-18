@@ -5,8 +5,8 @@ namespace BackToTheDawn.Loader;
 
 /// <summary>
 /// Small in-game command console for loader diagnostics and catalog work.
-/// Toggle with F8. Commands operate on the public read-only/catalog APIs and
-/// do not mutate the save or the game's c_item table.
+/// Toggle with F8. Commands operate on the public catalog and inventory APIs;
+/// inventory mutation commands affect the current game state and may be saved.
 /// </summary>
 public sealed class LoaderConsole : MonoBehaviour
 {
@@ -102,6 +102,9 @@ public sealed class LoaderConsole : MonoBehaviour
         {
             case "help":
                 WriteLine("help | items [filter] | item get <key> | item register <key> <name>");
+                WriteLine("item inject (experimental; changes live c_item only)");
+                WriteLine("item give <key> [count] (uses Inventory API; changes live inventory)");
+                WriteLine("inventory [add|remove] <key> [count] | inventory (show snapshot)");
                 WriteLine("mods | state | clear");
                 break;
             case "items":
@@ -109,6 +112,11 @@ public sealed class LoaderConsole : MonoBehaviour
                 break;
             case "item":
                 ExecuteItemCommand(
+                    parts.Length > 1 ? parts[1] : string.Empty,
+                    parts.Length > 2 ? parts[2] : string.Empty);
+                break;
+            case "inventory":
+                ExecuteInventoryCommand(
                     parts.Length > 1 ? parts[1] : string.Empty,
                     parts.Length > 2 ? parts[2] : string.Empty);
                 break;
@@ -131,7 +139,9 @@ public sealed class LoaderConsole : MonoBehaviour
     {
         if (string.IsNullOrWhiteSpace(subcommand))
         {
-            WriteLine("Usage: item get <key> | item register <key> <name>");
+            WriteLine(
+                "Usage: item get <key> | item register <key> <name> | " +
+                "item inject | item give <key> [count]");
             return;
         }
 
@@ -167,14 +177,28 @@ public sealed class LoaderConsole : MonoBehaviour
             }
 
             var item = new ConsoleItem(key, arguments[1]);
+            var registration = item.Register();
             WriteLine(
-                item.Register()
+                registration.Succeeded
                     ? $"Registered virtual item {key}."
-                    : $"Could not register {key}; it already exists or uses the game namespace.");
+                    : $"Could not register {key}: {registration.Status} - {registration.Message}");
             return;
         }
 
-        WriteLine("Unknown item command. Use item get or item register.");
+        if (subcommand == "inject")
+        {
+            var count = RuntimeItemInjection.TryInject(true);
+            WriteLine($"Injected {count} Mod item(s) into the live c_item table.");
+            return;
+        }
+
+        if (subcommand == "give")
+        {
+            GiveItem(argumentText);
+            return;
+        }
+
+        WriteLine("Unknown item command. Use item get, item register, item inject, or item give.");
     }
 
     private void ListItems(string filter)
@@ -213,6 +237,90 @@ public sealed class LoaderConsole : MonoBehaviour
             WriteLine(
                 $"effect {effect.Key} ({effect.DisplayName}) value={effect.Value} " +
                 $"duration={effect.Duration} percent={effect.IsPercent}");
+        }
+    }
+
+    private void GiveItem(string argumentText)
+    {
+        var arguments = argumentText.Split(
+            ' ',
+            2,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (arguments.Length == 0 || !ItemKey.TryParse(arguments[0], out var key))
+        {
+            WriteLine("Usage: item give <registered-key> [count]. Inject the item first.");
+            return;
+        }
+
+        var count = 1;
+        if (arguments.Length > 1 &&
+            (!int.TryParse(arguments[1], out count) || count <= 0))
+        {
+            WriteLine("Count must be a positive integer.");
+            return;
+        }
+
+        var result = ModApi.Inventory.TryAdd(key, count);
+        WriteLine(
+            $"Inventory add {key}: status={result.Status}, changed={result.ChangedCount}, " +
+            $"remaining={result.RemainingCount}, message={result.Message}");
+    }
+
+    private void ExecuteInventoryCommand(string subcommand, string argumentText)
+    {
+        if (string.IsNullOrWhiteSpace(subcommand))
+        {
+            ShowInventory();
+            return;
+        }
+
+        if (subcommand is not ("add" or "remove"))
+        {
+            WriteLine("Usage: inventory | inventory add <key> [count] | inventory remove <key> [count]");
+            return;
+        }
+
+        var arguments = argumentText.Split(
+            ' ',
+            2,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (arguments.Length == 0 || !ItemKey.TryParse(arguments[0], out var key))
+        {
+            WriteLine("A valid namespaced item key is required.");
+            return;
+        }
+
+        var count = 1;
+        if (arguments.Length > 1 &&
+            (!int.TryParse(arguments[1], out count) || count <= 0))
+        {
+            WriteLine("Count must be a positive integer.");
+            return;
+        }
+
+        var result = subcommand == "add"
+            ? ModApi.Inventory.TryAdd(key, count)
+            : ModApi.Inventory.TryRemove(key, count);
+        WriteLine(
+            $"Inventory {subcommand} {key}: status={result.Status}, " +
+            $"changed={result.ChangedCount}, remaining={result.RemainingCount}, " +
+            $"message={result.Message}");
+    }
+
+    private void ShowInventory()
+    {
+        if (!ModApi.Inventory.TryGetSnapshot(out var inventory) || inventory is null)
+        {
+            WriteLine("Inventory snapshot is not available.");
+            return;
+        }
+
+        WriteLine($"Inventory: {inventory.Items.Count} stacks, character={inventory.CharacterId}.");
+        foreach (var stack in inventory.Items.Take(40))
+        {
+            WriteLine(
+                $"{stack.ItemKey} x{stack.Count} at {stack.Location.Container} " +
+                $"({stack.Location.PlaceId},{stack.Location.SubPlaceId}), fullGrid={stack.IsFullGrid}");
         }
     }
 

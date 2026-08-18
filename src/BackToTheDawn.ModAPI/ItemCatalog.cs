@@ -89,7 +89,9 @@ public sealed record ItemDefinition(
     int MaxStack,
     int MaxUse,
     string ParameterA,
-    string ParameterB);
+    string ParameterB,
+    bool OccupiesFullGrid = false,
+    ItemResources? Resources = null);
 
 /// <summary>
 /// One declared effect applied when an item is used. The effect key is
@@ -170,6 +172,34 @@ public static class ItemCatalog
             _definitions[key] = definition;
             RebuildAll();
             IsAvailable = true;
+            return true;
+        }
+    }
+
+    internal static bool TryUnregister(ItemKey key)
+    {
+        if (key.Namespace.Equals("backtothedawn", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        lock (SyncRoot)
+        {
+            var keyText = key.ToString();
+            if (_idsByKey.ContainsKey(keyText))
+            {
+                return false;
+            }
+
+            if (!_definitions.Remove(keyText))
+            {
+                return false;
+            }
+
+            _idsByKey.Remove(keyText);
+            _effectsByItem.Remove(keyText);
+            RebuildAll();
+            IsAvailable = _definitions.Count > 0;
             return true;
         }
     }
@@ -349,6 +379,30 @@ public static class ItemCatalog
         lock (SyncRoot)
         {
             return _idsByKey.TryGetValue(key.ToString(), out id);
+        }
+    }
+
+    internal static void BindRuntimeId(ItemKey key, int id)
+    {
+        lock (SyncRoot)
+        {
+            var keyText = key.ToString();
+            if (!_definitions.ContainsKey(keyText))
+            {
+                return;
+            }
+
+            _idsByKey[keyText] = id;
+            if (!_keysById.TryGetValue(id, out var keys))
+            {
+                keys = new List<ItemKey>();
+                _keysById[id] = keys;
+            }
+
+            if (!keys.Contains(key))
+            {
+                keys.Add(key);
+            }
         }
     }
 

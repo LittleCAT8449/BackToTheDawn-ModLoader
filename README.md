@@ -73,13 +73,24 @@ the entry assembly and dependencies, then creates the manifest's `IMod` entry
 type in dependency order. Results are exposed through `ModRegistry` and
 `ModRegistryReadyEvent`.
 
+推荐通过统一入口 `ModApi.Items`、`ModApi.Events` 和 `ModApi.Game` 使用公共 API；旧的静态类仍保持兼容。
+`ModApi.Game.TryGetInventorySnapshot()` 可读取只读背包快照，`InventoryChangedEvent` 和
+`InventoryMovedEvent` 分别表示数量变化与容器移动。
+`ModApi.Inventory.TryAdd/TryRemove/TryMove()` 提供受控修改，并返回实际变化量和结构化失败状态。
 物品 API 默认使用命名空间键，例如 `backtothedawn:apple`，不会把数字 ID 放进物品定义或物品事件。
 只有需要调用游戏底层整数参数时，才显式使用 `ItemIdResolver`；完整运行时目录就绪后可订阅
-`ItemCatalogReadyEvent`，物品效果可通过 `ItemCatalog.GetEffects()` 查询。
+`ItemCatalogReadyEvent` 和 `ItemRuntimeReadyEvent`，物品效果可通过 `ItemCatalog.GetEffects()` 查询。
 
-新物品建议继承 `Item` 并调用 `item.Register()` 注册；`ItemRegistry.Register(item)` 可用于
-统一注册。加载器还提供一个开发用 F8 控制台。常用命令包括 `help`、`items [filter]`、
-`item get <namespace:path>`、`mods` 和 `state`。`item register <namespace:path> <name>`
+新物品建议继承 `Item` 并调用 `item.Register()` 注册；返回的
+`ItemRegistrationResult` 可用于读取失败原因，`ItemRegistry.Register(item)` 可用于统一注册。
+物品可以用 `ItemResources` 声明 `src/resource` 下的图标、名称和描述文件。运行时注入默认开启，
+名称/描述会进入游戏语言字典，PNG/JPG 图标会在背包控件刷新时替换模板图标；缺失资源会安全回退。
+真实物品注入由 `Items/EnableRuntimeItemInjection` 控制；关闭后仍可读取虚拟目录，但不会写入游戏
+运行时 `c_item` 表。注入可能影响存档，首次测试前请备份存档。
+加载器还提供一个开发用 F8 控制台。常用命令包括 `help`、`items [filter]`、
+`item get <namespace:path>`、`item inject`、`item give <key> [count]`、
+`inventory [add|remove] <key> [count]`、`mods` 和 `state`。
+`item register <namespace:path> <name>`
 只注册 Mod API 中的虚拟目录项，不会写入存档、背包或游戏的 `c_item` 表；真正可使用的
 游戏物品还需要后续接入游戏数据和 UI。
 
@@ -103,6 +114,7 @@ Mod. Remove those two test directories from `BepInEx/mods` after verification.
 - `scripts/Build-And-Deploy.ps1`: builds the Loader and deploys Mods into `BepInEx/mods`
 - `scripts/New-Mod.ps1`: generates a starter Mod project
 - `docs/TECHNICAL.md`: public API, event semantics, lifecycle, and internal Hook mapping
+- `docs/API_DEVELOPMENT_REQUIREMENTS.md`: API 需求、阶段计划和验收标准
 - `docs/GAME_UNPACKING.md`: game files, IL2CPP metadata, reconstructed signatures, and Hook evidence
 - `docs/GAME_SYSTEMS.md`: game systems, data models, runtime evidence, and recommended Hook boundaries
 - `docs/ITEM_CATALOG.md`: static ItemID names/values and the runtime `c_item` schema

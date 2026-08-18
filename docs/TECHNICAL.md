@@ -200,7 +200,26 @@ LoaderOverlay 会显示当前有效、拒绝和已初始化的 Mod 数量。仓�
 
 ## 稳定 API
 
-`GameEvents` 是当前提供给 Mod 的公共生命周期 API。Mod 不应依赖底层 `GameManage` 方法或自行重复安装相同 Harmony 补丁。
+`ModApi` 是推荐的统一入口，包含 `Items`、`Events` 和只读的 `Game` 服务。旧的
+`ItemRegistry`、`ItemCatalog`、`ItemIdResolver` 与 `GameEvents` 仍然保留，已有 Mod 无需迁移。
+Mod 不应依赖底层 `GameManage` 方法或自行重复安装相同 Harmony 补丁。
+
+```csharp
+var registration = ModApi.Items.Register(new DebugTokenItem("examplemod"));
+_subscriptions.Add(ModApi.Events.Subscribe<ItemUseAfterEvent>(info =>
+{
+    context.Logger.Info($"used {info.Context.ItemKey}: {info.Result.Succeeded}");
+}));
+
+if (ModApi.Game.TryGetSnapshot(out var state) && state is not null)
+{
+    context.Logger.Info($"gameplay ready: {ModApi.Game.IsGameplayReady}");
+}
+```
+
+`ModApi.Items` 集中提供注册、目录/效果查询、行为注册，以及显式的运行时数字 ID 转换；
+`ModApi.Events.Subscribe<T>()` 返回可释放的订阅句柄；`ModApi.Game` 只返回稳定快照。
+统一入口不改变旧静态 API 的语义，方便逐步迁移。
 
 推荐使用统一的静态订阅入口：
 
@@ -238,6 +257,21 @@ _subscriptions.Add(GameEvents.Subscribe<ItemCatalogReadyEvent>(info =>
     context.Logger.Info($"Item catalog ready: {info.Count}");
 }));
 ```
+
+启用实验性运行时注入时，还可以订阅 `ItemRuntimeReadyEvent`。该事件只在当前进程第一次
+观察到游戏物品表后触发一次；`InjectedCount` 表示本次自动注入的 Mod 物品数：
+
+```csharp
+_subscriptions.Add(GameEvents.Subscribe<ItemRuntimeReadyEvent>(info =>
+{
+    context.Logger.Info(
+        $"Item runtime ready: catalog={info.CatalogCount}, " +
+        $"injected={info.InjectedCount}, enabled={info.InjectionEnabled}");
+}));
+```
+
+事件触发后，`ItemIdResolver` 才适合用于需要当前进程数字 ID 的低级调用。数字 ID 仍然只在
+本次游戏进程内有效，不能写入 Mod 的稳定存档格式。
 
 只有确实需要调用游戏底层整数参数的方法时，才使用独立的 `ItemIdResolver`：
 
@@ -282,19 +316,97 @@ private sealed class DebugTokenItem : Item
 }
 
 var item = new DebugTokenItem(context.Manifest.Id);
-if (!item.Register())
+var result = item.Register();
+if (!result.Succeeded)
 {
-    context.Logger.Warn("Item key already exists or uses the game namespace.");
+    context.Logger.Warn($"{result.Status}: {result.Message}");
 }
 ```
 
 如果需要统一处理多个物品，也可以调用 `ItemRegistry.Register(item)`；它和实例的
-`item.Register()` 使用同一套注册逻辑。`ItemDefinition` 仍保留作为只读目录模型和旧 API
-兼容入口，但新建物品不需要手工拼接它。
+`item.Register()` 使用同一套注册逻辑。`ItemRegistrationResult` 会区分已注册、重复键、
+保留游戏命名空间和生命周期回调失败；只需要布尔值时可以调用 `item.TryRegister()`。
 
-这一步建立的是 Mod API 的虚拟目录项：它没有数字游戏 ID，不会修改 `ConfigData`、`c_item`、
-存档或玩家背包。因此它适合先让 Mod 共享稳定的命名空间标识；要把物品真正放入游戏，
-还需要单独实现游戏数据、图标、UI 和背包写入适配。
+物品可以覆盖注册生命周期，用于准备或释放 Mod 自己的运行时资源：
+
+```csharp
+protected override void OnRegistered()
+{
+    // 注册成功后执行一次
+}
+
+protected override void OnUnregistered()
+{
+    // item.Unregister() 后执行一次
+}
+```
+
+卸载也提供结构化结果：
+
+```csharp
+var result = item.UnregisterDetailed();
+switch (result.Status)
+{
+    case ItemUnregistrationStatus.Unregistered:
+        break;
+    case ItemUnregistrationStatus.RuntimeBound:
+        // 已注入 c_item 的物品会保留到游戏进程退出，不能在运行中强行移除。
+        context.Logger.Warn(result.Message);
+        break;
+    default:
+        context.Logger.Warn($"{result.Status}: {result.Message}");
+        break;
+}
+```
+
+`RuntimeBound` 是明确的延迟卸载策略：物品一旦获得当前进程的运行时数字 ID，
+Loader 不会尝试从游戏的 `c_item` 列表中删除它，以免 UI、背包或存档仍持有该 ID。
+游戏重启后会重新建立目录；`CallbackFailed` 表示目录已经移除，但
+`OnUnregistered` 回调抛出了异常，`Succeeded` 仍为 `true`。
+
+`ItemDefinition` 仍保留作为只读目录模型和旧 API 兼容入口，但新建物品不需要手工拼接它。
+
+库存格子占用通过 `Item.OccupiesFullGrid` 声明：`false` 表示半格/小格物品，`true` 表示整格
+物品。运行时目录会以 `c_itemExtension.IsFullGrid(c_item)` 为准读取，不直接把原始 `volume`
+整数暴露给 Mod。
+
+物品资源路径使用 `ItemResources` 声明，并且只能指向 Mod 自己的 `src/resource`：
+
+```csharp
+public DebugTokenItem(string @namespace)
+    : base(
+        new ItemKey(@namespace, "debug_token"),
+        "调试令牌",
+        resources: new ItemResources(
+            iconPath: "items/debug_token/icon.png",
+            namePath: "items/debug_token/name.txt",
+            descriptionPath: "items/debug_token/description.txt"))
+{
+}
+
+var iconPath = item.Resources.ResolveIconPath(context.Resources);
+```
+
+路径解析会拒绝绝对路径和 `..` 穿越。运行时注入时，`namePath` 和 `descriptionPath`
+会按 UTF-8 文本读取并写入游戏语言字典；`iconPath` 支持 PNG/JPG，Loader 会在
+`WidgetItem.UpdateImage` 后创建 Unity `Sprite` 并替换物品图像。没有资源文件时会回退到
+注册时的 `displayName`/`backgroundDescription`，图标则继续使用游戏模板图标并记录警告。
+
+资源仍然只存在于当前 Mod 的 `src/resource`（部署后为该 Mod 目录下的 `resource`），不会
+写入游戏原始资源包。
+
+真实 `c_item` 注入由 `Items/EnableRuntimeItemInjection` 控制，默认值为 `true`。开启后，
+Loader 会在 `GameplayReady` 后为每个已注册 Mod 物品分配 `20000+` 的运行时 ID，复制一个
+相同半格/整格类型的现有 `c_item` 模板，写入 `ConfigData.item` 和 `ConfigData.dict_item`，
+并把物品名称/描述加入运行时语言字典。该过程只改当前进程内存；物品被加入背包并保存后，
+才可能影响存档，因此首次测试应使用备份存档。
+
+运行时注入桥接会返回 `ItemInjectionResult`，其中包含 `ItemInjectionStatus`、当前数字 ID
+（如果已分配）和可读错误信息。启用注入后，在首次 `ItemRuntimeReadyEvent` 之后注册的新物品
+会尝试立即注入；注入关闭时则只进入虚拟目录，需下一次启用注入或使用控制台命令处理。
+
+注入使用的是当前进程内存中的运行时 ID，不会修改原始资源包。图标资源和语言文本会通过
+Loader 的运行时桥接接入 UI；物品加入背包并保存后仍可能进入存档，因此首次测试应使用备份存档。
 
 Loader 自带的开发控制台默认启用，进入场景后按 `F8` 打开。命令如下：
 
@@ -304,13 +416,17 @@ items [filter]
 item get <namespace:path>
 item effects <namespace:path>
 item register <namespace:path> <display name>
+item inject
+item give <namespace:path> [count]
+inventory [add|remove] <namespace:path> [count]
 mods
 state
 clear
 ```
 
-控制台只调用上述公共目录、Mod 注册表和只读 `GameContext`；它不是作弊控制台，也不会执行
-任意 C# 或直接写入游戏数据。可以在 `BepInEx/config/dev.backtothedawn.loader.cfg` 中将
+`item inject` 和 `item give` 是实验性命令：前者写入当前进程的 `c_item`，后者调用
+`ThingPackage.AddItem` 改变当前角色背包；二者都可能在游戏保存后进入存档，测试前应备份。
+其他命令只调用公共目录、Mod 注册表和只读 `GameContext`；控制台不会执行任意 C#。可以在 `BepInEx/config/dev.backtothedawn.loader.cfg` 中将
 `Interface/ShowConsole` 设为 `false`，关闭该组件。
 
 ### StartupStepChanged
@@ -461,8 +577,202 @@ public sealed record PlayerItemUsedEvent(
     int UseCount);
 ```
 
-当前底层入口是 `CharacterAttribute.UseItem(int itemId, int useCount, ThingChangeReason reason)` 的
-Postfix。事件只报告主角，NPC 使用物品会被过滤；底层整数 ID 不会出现在默认事件对象中。
+当前底层有两层入口：`ThingPackage.UseThing(Thing, UseThingReason)` /
+`UseBatchThing(Thing, int, UseThingReason)` 负责背包实例的消耗，
+`CharacterAttribute.UseItem(int itemId, int useCount, ThingChangeReason reason)` 负责角色使用效果。
+Loader 会优先在 `ThingPackage` 层派发前置事件，因此取消发生在数量扣除之前；如果游戏代码直接调用
+`CharacterAttribute.UseItem`，则由后者的 Prefix 兜底。事件只报告主角，NPC 使用物品会被过滤；底层整数
+ID 不会出现在默认事件对象中。
+
+### ItemUseBefore / ItemUseAfter
+
+新 API 在同一个 `UseItem` 入口上提供可取消的前置事件和统一的后置结果：
+
+```csharp
+_subscriptions.Add(GameEvents.Subscribe<ItemUseBeforeEvent>(info =>
+{
+    if (info.Context.ItemKey == new ItemKey("example", "restricted_tool"))
+    {
+        info.Cancel("当前状态不能使用这个工具。");
+    }
+}));
+
+_subscriptions.Add(GameEvents.Subscribe<ItemUseAfterEvent>(info =>
+{
+    context.Logger.Info(
+        $"use={info.Context.ItemKey}, source={info.Context.Source}, " +
+        $"success={info.Result.Succeeded}, consumed={info.Result.ConsumedCount}, " +
+        $"remaining={info.Result.RemainingCount?.ToString() ?? "<unknown>"}");
+}));
+```
+
+`ItemUseContext` 只包含命名空间物品键、角色 ID、来源、请求数量和可选
+`ItemTarget`，不引用 `CharacterAttribute` 或 `Thing`。前置订阅者可以修改
+`RequestedCount`/`Target`，也可以调用 `Cancel()`；取消后不会调用游戏原始方法，
+并且后置结果的 `Cancelled` 为 `true`、消耗数量为 `0`。
+
+Mod 物品可以注册不依赖游戏程序集的行为：
+
+```csharp
+private sealed class ToolBehavior : IItemBehavior
+{
+    public ItemUseResult Use(ItemUseContext context) =>
+        new(true, false, context.RequestedCount, "工具行为已执行");
+}
+
+var behaviorResult = ItemBehaviorRegistry.Register(item.Key, new ToolBehavior());
+```
+
+注册行为后，Loader 会在前置事件通过时执行该行为并跳过游戏模板物品的原始
+`UseThing`/`UseItem`。行为异常会转成 `ExecutionFailed` 结果并记录日志，不会让其他订阅者或游戏进程崩溃。
+内置物品没有 Mod 行为时仍走原始游戏逻辑；当前版本在原始方法返回后把请求数量作为
+消耗数量，精确背包数量将在后续 Inventory API 中补齐。
+
+### InventoryChanged
+
+库存增删 Hook 在 `ThingPackage` 返回后比较玩家背包中该物品的实际数量，避免把游戏内部
+的 `Thing` 暴露给 Mod：
+
+```csharp
+_subscriptions.Add(ModApi.Events.Subscribe<InventoryChangedEvent>(info =>
+{
+    context.Logger.Info(
+        $"{info.ItemKey}: {info.Delta:+#;-#;0}, " +
+        $"total={info.TotalCount}, source={info.Source}, success={info.Succeeded}");
+}));
+```
+
+`Delta` 为正表示新增、为负表示减少，`TotalCount` 是操作完成后的当前总数。
+`Source` 当前覆盖 `UseThing`、`UseBatchThing`、`AddItem`、`AddItemOneByOne`、`ReduceItem`、
+`ReduceThingCount` 和 `RemoveThing`；`Reason` 是游戏原因枚举的稳定字符串，不要求 Mod
+引用 firstpass 程序集。使用物品的库存快照与内部扣除 Hook 会自动去重。
+事件只观察主角，初始化阶段和 NPC 背包操作会被过滤。库存操作仍由游戏原始方法执行，
+该事件不提供修改或取消语义。
+
+### InventorySnapshot 与 InventoryMoved
+
+Mod 可以在 GameplayReady 后读取当前玩家背包的不可变快照：
+
+```csharp
+if (ModApi.Game.TryGetInventorySnapshot(out var inventory) && inventory is not null)
+{
+    var count = inventory.GetCount(new ItemKey("backtothedawn", "painkiller"));
+    foreach (var stack in inventory.Items)
+    {
+        context.Logger.Info(
+            $"{stack.ItemKey} x{stack.Count} at {stack.Location.Container}, " +
+            $"fullGrid={stack.IsFullGrid}");
+    }
+}
+```
+
+快照中的 `InventoryStack` 只包含命名空间键、数量、容器/格子坐标和占格信息，永远不暴露
+`Thing` 或运行时数字 ID。整理、装备、卸下和其他容器移动会触发独立的
+`InventoryMovedEvent`；移动不改变总数量，因此不会伪装成 `InventoryChangedEvent`。
+
+### TradeDetected
+
+交易观察事件从游戏的 `ThingChangeReason`、库存增删和 `ThingPackage.ChangeMoney` 入口统一
+推断交易类型：
+
+```csharp
+_subscriptions.Add(ModApi.Events.Subscribe<TradeDetectedEvent>(info =>
+{
+    context.Logger.Info(
+        $"trade={info.Kind}, leg={info.Leg}, item={info.ItemKey?.ToString() ?? \"<none>\"}, " +
+        $"itemDelta={info.ItemDelta}, moneyDelta={info.CurrencyDelta}, " +
+        $"disciplineDelta={info.DisciplineDelta}, shopId={info.ShopId?.ToString() ?? \"<none>\"}, " +
+        $"shopKey={info.ShopKey?.ToString() ?? \"<none>\"}, " +
+        $"phase={info.Phase}, requestedCount={info.RequestedCount}, " +
+        $"relationshipDelta={info.RelationshipDelta}, " +
+        $"reason={info.Reason}, source={info.Source}, direction={info.Direction}, " +
+        $"counterparty={info.CounterpartyId?.ToString() ?? \"<none>\"}/" +
+        $"{info.CounterpartyName ?? \"<unknown>\"}");
+}));
+```
+
+当前 `TradeKind` 可以区分囚犯买卖、普通购买、讨价还价、午餐、帮派/教士/副队长商店、
+自动售货机（`ShopId=9`）、屋顶兑换、电视购物、赠送/回礼、生产、彩票、下注、银行、服务购买、
+免费领取和特殊兑换。游戏会把自动售货机复用为 `BuyViceCaptainShopGoods` 原因码，Loader
+优先使用语义商店 ID，因此不会把自动售货机误报为副队长商店。
+囚犯交易使用语义 Hook：`Prefab_OneTransaction.SubmitBuy` 表示玩家从 NPC 处买入，
+`Prefab_OneTransaction.DoSell` 表示玩家向 NPC 卖出；`NpcItemSaleLogic.SaleItem` /
+`NpcItemBuyLogic.BuyItem` 作为底层逻辑备用入口。语义事件使用 `TradeLegKind.Combined`，
+同时给出 `TradeDirection`、`CounterpartyId` 和尽可能解析出的 `CounterpartyName`，
+因此模组不需要仅凭 `ThingChangeReason=Buy` 猜测交易对象。
+物品和金钱可能分别产生一条事件，因此 `ObservationId` 是观察信号 ID，不是已经关联好的
+完整交易 ID；语义交易会在入口方法返回后比较真实库存、金钱和纪律变化并合并成一条事件。
+第一版事件只读、不可取消，也不保证每种剧情交易都能提供完整对象信息。
+游戏内部的 `backtothedawn:money` 伪物品变化会被过滤，金钱只通过 `CurrencyDelta` 报告。
+纪律/表现通过 `DisciplineDelta` 报告；屋顶交易可以在同一事件中同时携带金钱和纪律变化。
+关系值通过 `TradeCurrencyKind.Relationship` 与 `RelationshipDelta` 报告。
+玛姬邮寄和帮派商店使用 `TradePhase.OrderPlaced` 记录下单，第二天实际收到物品时再以
+`TradePhase.Delivered` 发出到账事件；到账事件的 `ItemDelta` 才代表库存已经增加，
+而下单事件使用 `RequestedCount` 表示期望数量。这样可以区分“扣除资源”和“延迟收货”。
+事件只报告主角的变化；物品仍不会暴露 `Thing`、`c_shop` 或物品数字 ID，NPC 的
+`CounterpartyId` 仅用于标识语义 Hook 捕获到的交易对象。
+
+### Relationship API
+
+关系值通过只读 API 查询，避免模组直接操作游戏内部的 `CharacterAttribute`：
+
+```csharp
+foreach (var relationship in ModApi.Relationships.All)
+{
+    context.Logger.Info(
+        $"character={relationship.CharacterId}, name={relationship.CharacterName}, " +
+        $"friend={relationship.Friend}, affection={relationship.Affection}, " +
+        $"affectionMode={relationship.IsAffectionMode}");
+}
+
+var current = ModApi.Relationships.Interactive;
+```
+
+`Affection` 是游戏对进入亲情/恋爱模式角色暴露的当前值，`Friend` 是通用关系值；
+`IsAffectionMode` 用于判断当前角色是否已经使用亲情值体系。玛姬邮寄、借钱或恢复关系
+等操作的资源变化仍通过 `TradeDetectedEvent.RelationshipDelta` 报告，查询 API 只提供
+当前快照，不直接修改数值。
+
+### ShopCatalog 与 ShopKey
+
+商店默认使用命名空间键，而不是直接比较游戏数字 ID：
+
+```csharp
+if (info.ShopKey == new ShopKey("backtothedawn", "vending_machine"))
+{
+    // 自动售货机购买
+}
+
+foreach (var shop in ModApi.Shops.Catalog)
+{
+    context.Logger.Info(
+        $"{shop.Key}: {shop.DisplayName}; " +
+        $"nativeIds={string.Join(\",\", shop.NativeShopIds)}");
+}
+```
+
+`ShopId` 仍保留为原始兼容字段；`ShopKey` 是 Mod 应使用的稳定身份。
+游戏中多个配置 ID 映射到同一逻辑商店时（例如副队长商店的 1、2），它们共享
+一个命名空间键。理发店等不使用 `c_shop` 的交易可以只有语义 `ShopKey`，其
+`ShopId` 为 `null`。
+
+### InventoryApi
+
+需要修改当前玩家背包时使用受控服务，不要直接调用 `ThingPackage`：
+
+```csharp
+var add = ModApi.Inventory.TryAdd(new ItemKey("examplemod", "debug_token"), 1);
+var remove = ModApi.Inventory.TryRemove(new ItemKey("backtothedawn", "apple"), 1);
+var move = ModApi.Inventory.TryMove(
+    new ItemKey("backtothedawn", "apple"),
+    new InventoryLocation("Pocket", 1, 0),
+    new InventoryLocation("Equipment", 1, 0));
+```
+
+服务只允许在 GameplayReady 的游戏主线程调用，返回 `InventoryOperationResult`，其中
+`ChangedCount` 和 `RemainingCount` 来自操作前后的真实快照。数量不足、物品未注册、目标
+容器无效、空间不足和部分成功都有独立状态；服务不直接向 Mod 暴露 `ThingPackage`、
+`Thing` 或数字 ID。底层调用仍会触发对应的 `InventoryChangedEvent`/`InventoryMovedEvent`。
 
 ### PlayerItemAction
 
@@ -535,7 +845,7 @@ public sealed record GameStateSnapshot(
     PlayerSnapshot? Player);
 ```
 
-`GameTimeSnapshot` 包含天数、醒来日、小时、分钟和总分钟数。`PlayerSnapshot` 当前包含角色 ID、生命、心态、饱食、精力、专注及金钱。
+`GameTimeSnapshot` 包含天数、醒来日、小时、分钟和总分钟数。`PlayerSnapshot` 当前包含角色 ID、生命、心态、饱食、精力、专注、金钱和纪律/表现。
 
 ## 使用示例
 
@@ -627,6 +937,7 @@ BepInEx/LogOutput.log
 | `TimeChanged` | `GameProcess.PassMinutes` overloads | Postfix + snapshot deduplication |
 | `MapChanged` | `Map.FocusMap` | Postfix + map ID deduplication |
 | `PlayerItemAction` | `CharacterAttribute.UseItem` / `EquipmentItem` / `RemoveEquipmentItem`、`ThingPackage.MoveThingPlace`、`WidgetItemMiddleTools.ArrangePocketItemList`、物品摧毁确认方法、`WidgetItemOperationButton.ClickA` | Prefix + Postfix |
+| `TradeDetected` | `Prefab_OneTransaction.SubmitBuy` / `DoSell`、`Prefab_OneGift.DoGive`、`WidgetGiftItemTips.SubmitReceiveGiftBack`、`UI_ShopListUnit.SubmitBuy`、`UI_ShopListUnitRoof.SubmitBuy`、`UI_MailItem.SubmitMailItem`、`StorageGirlFriendShopBuyHistory.ReceiveGirlFriendPackage`、`UI_GangShopListUnit.Submitbuy`、`StorageGangShopApply.ReceiveGangShopItem`、`NpcItemBuyLogic.BuyItem` / `NpcItemSaleLogic.SaleItem`、库存/金钱/关系值入口 | 语义交易 Prefix/Postfix + 即时/延迟结算阶段 + 库存/金钱/纪律/关系值快照 + `ThingChangeReason` 分类 |
 
 加载器可在游戏更新后更换底层 Hook，而不改变公共事件的语义。
 
@@ -645,6 +956,7 @@ BepInEx/config/dev.backtothedawn.loader.cfg
 | `General` | `Enabled` | `true` | 启用加载器原型 |
 | `Interface` | `ShowStatusOverlay` | `true` | 显示左上角状态面板 |
 | `Interface` | `ShowConsole` | `true` | 启用 F8 开发控制台 |
+| `Items` | `EnableRuntimeItemInjection` | `true` | 实验性注入 Mod 物品到运行时 `c_item` |
 | `Diagnostics` | `EnableRuntimeProbe` | `true` | 场景加载后执行一次对象探针 |
 | `Diagnostics` | `EnableLifecycleHooks` | `true` | 安装生命周期 Hook 并提供 `GameEvents` |
 

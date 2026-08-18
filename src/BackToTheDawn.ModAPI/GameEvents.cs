@@ -11,11 +11,17 @@ public static class GameEvents
     public static event Action<ArchiveLoadEvent>? ArchiveLoadInvocationReturned;
     public static event Action? GameplayReady;
     public static event Action<ItemCatalogReadyEvent>? ItemCatalogReady;
+    public static event Action<ItemRuntimeReadyEvent>? ItemRuntimeReady;
     public static event Action<TimeChangedEvent>? TimeChanged;
     public static event Action<MapChangedEvent>? MapChanged;
     public static event Action<PlayerStateChangedEvent>? PlayerStateChanged;
     public static event Action<PlayerItemUsedEvent>? PlayerItemUsed;
     public static event Action<PlayerItemActionEvent>? PlayerItemAction;
+    public static event Action<InventoryChangedEvent>? InventoryChanged;
+    public static event Action<InventoryMovedEvent>? InventoryMoved;
+    public static event Action<TradeDetectedEvent>? TradeDetected;
+    public static event Action<ItemUseBeforeEvent>? ItemUseBefore;
+    public static event Action<ItemUseAfterEvent>? ItemUseAfter;
     public static event Action<ModDiscoveredEvent>? ModDiscovered;
     public static event Action<ModRejectedEvent>? ModRejected;
     public static event Action<ModRegistryReadyEvent>? ModRegistryReady;
@@ -80,6 +86,14 @@ public static class GameEvents
             return new Subscription(() => ItemCatalogReady -= wrapper);
         }
 
+        if (typeof(TEvent) == typeof(ItemRuntimeReadyEvent))
+        {
+            Action<ItemRuntimeReadyEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            ItemRuntimeReady += wrapper;
+            return new Subscription(() => ItemRuntimeReady -= wrapper);
+        }
+
         if (typeof(TEvent) == typeof(TimeChangedEvent))
         {
             Action<TimeChangedEvent> wrapper = value =>
@@ -118,6 +132,46 @@ public static class GameEvents
                 handler((TEvent)(object)value);
             PlayerItemAction += wrapper;
             return new Subscription(() => PlayerItemAction -= wrapper);
+        }
+
+        if (typeof(TEvent) == typeof(InventoryChangedEvent))
+        {
+            Action<InventoryChangedEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            InventoryChanged += wrapper;
+            return new Subscription(() => InventoryChanged -= wrapper);
+        }
+
+        if (typeof(TEvent) == typeof(InventoryMovedEvent))
+        {
+            Action<InventoryMovedEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            InventoryMoved += wrapper;
+            return new Subscription(() => InventoryMoved -= wrapper);
+        }
+
+        if (typeof(TEvent) == typeof(TradeDetectedEvent))
+        {
+            Action<TradeDetectedEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            TradeDetected += wrapper;
+            return new Subscription(() => TradeDetected -= wrapper);
+        }
+
+        if (typeof(TEvent) == typeof(ItemUseBeforeEvent))
+        {
+            Action<ItemUseBeforeEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            ItemUseBefore += wrapper;
+            return new Subscription(() => ItemUseBefore -= wrapper);
+        }
+
+        if (typeof(TEvent) == typeof(ItemUseAfterEvent))
+        {
+            Action<ItemUseAfterEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            ItemUseAfter += wrapper;
+            return new Subscription(() => ItemUseAfter -= wrapper);
         }
 
         if (typeof(TEvent) == typeof(ModDiscoveredEvent))
@@ -198,6 +252,15 @@ public static class GameEvents
     internal static void RaiseItemCatalogReady(int count) =>
         Raise(ItemCatalogReady, new ItemCatalogReadyEvent(count), nameof(ItemCatalogReady));
 
+    internal static void RaiseItemRuntimeReady(
+        int catalogCount,
+        int injectedCount,
+        bool injectionEnabled) =>
+        Raise(
+            ItemRuntimeReady,
+            new ItemRuntimeReadyEvent(catalogCount, injectedCount, injectionEnabled),
+            nameof(ItemRuntimeReady));
+
     internal static void RaiseTimeChanged(GameTimeSnapshot previous, GameTimeSnapshot current) =>
         Raise(TimeChanged, new TimeChangedEvent(previous, current), nameof(TimeChanged));
 
@@ -245,6 +308,66 @@ public static class GameEvents
                 rawOperationType),
             nameof(PlayerItemAction));
 
+    internal static void RaiseInventoryChanged(
+        int characterId,
+        ItemKey itemKey,
+        int delta,
+        int totalCount,
+        InventoryChangeKind change,
+        bool succeeded,
+        string source,
+        string reason) =>
+        Raise(
+            InventoryChanged,
+            new InventoryChangedEvent(
+                characterId,
+                itemKey,
+                delta,
+                totalCount,
+                change,
+                succeeded,
+                source,
+                reason),
+            nameof(InventoryChanged));
+
+    internal static void RaiseInventoryMoved(
+        int characterId,
+        ItemKey itemKey,
+        int count,
+        InventoryLocation from,
+        InventoryLocation to,
+        bool succeeded,
+        string source) =>
+        Raise(
+            InventoryMoved,
+            new InventoryMovedEvent(
+                characterId,
+                itemKey,
+                count,
+                from,
+                to,
+                succeeded,
+                source),
+            nameof(InventoryMoved));
+
+    internal static void RaiseTradeDetected(TradeDetectedEvent value) =>
+        Raise(TradeDetected, value, nameof(TradeDetected));
+
+    internal static ItemUseBeforeEvent RaiseItemUseBefore(ItemUseContext context)
+    {
+        var value = new ItemUseBeforeEvent(context);
+        Raise(ItemUseBefore, value, nameof(ItemUseBefore));
+        return value;
+    }
+
+    internal static void RaiseItemUseAfter(
+        ItemUseContext context,
+        ItemUseResult result) =>
+        Raise(
+            ItemUseAfter,
+            new ItemUseAfterEvent(context, result),
+            nameof(ItemUseAfter));
+
     internal static void RaiseModDiscovered(ModDescriptor mod) =>
         Raise(ModDiscovered, new ModDiscoveredEvent(mod), nameof(ModDiscovered));
 
@@ -285,11 +408,17 @@ public static class GameEvents
         ArchiveLoadInvocationReturned = null;
         GameplayReady = null;
         ItemCatalogReady = null;
+        ItemRuntimeReady = null;
         TimeChanged = null;
         MapChanged = null;
         PlayerStateChanged = null;
         PlayerItemUsed = null;
         PlayerItemAction = null;
+        InventoryChanged = null;
+        InventoryMoved = null;
+        TradeDetected = null;
+        ItemUseBefore = null;
+        ItemUseAfter = null;
         ModDiscovered = null;
         ModRejected = null;
         ModRegistryReady = null;

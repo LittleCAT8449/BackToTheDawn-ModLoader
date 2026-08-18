@@ -105,7 +105,7 @@ public sealed class ModEntry : IMod
     private void OnPlayerItemAction(PlayerItemActionEvent info)
     {
         _context?.Logger.Info(
-            $"Item action: {info.Action}, item={info.ItemId}, count={info.Count}, " +
+            $"Item action: {info.Action}, item={info.ItemKey?.ToString() ?? "<pocket>"}, count={info.Count}, " +
             $"success={info.Succeeded}, source={info.Source}, " +
             $"rawOperationType={info.RawOperationType}.");
     }

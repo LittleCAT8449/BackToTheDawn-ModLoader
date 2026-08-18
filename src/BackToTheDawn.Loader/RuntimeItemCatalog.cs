@@ -187,6 +187,7 @@ internal static class RuntimeItemCatalog
             batteryDescriptionKey = item.L_battery_des,
             itemType = item.item_type,
             itemType2 = item.item_type_2,
+            occupiesFullGrid = ReadBool(() => c_itemExtension.IsFullGrid(item)) ?? item.volume != 0,
             interactiveType = item.interactive_type,
             handbookType = item.handbook_type,
             itemValue = item.item_value,
@@ -245,7 +246,8 @@ internal static class RuntimeItemCatalog
             item.max_stack,
             item.max_use,
             ReadString(() => item.item_p_A) ?? string.Empty,
-            ReadString(() => item.item_p_B) ?? string.Empty);
+            ReadString(() => item.item_p_B) ?? string.Empty,
+            ReadBool(() => c_itemExtension.IsFullGrid(item)) ?? item.volume != 0);
     }
 
     private static List<object> CaptureItemTypes(

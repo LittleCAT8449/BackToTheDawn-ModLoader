@@ -196,6 +196,10 @@ CharacterAttribute.UseItem(int itemId, int useCount, ThingChangeReason reason)
 | `ThingPackage` | `AddAttirbute` | `ItemType, int, ThingChangeReason` | 属性增加分发 |
 | `ThingPackage` | `ChangeAttirbute` | `ItemType, int, ThingChangeReason` | 属性变化分发 |
 | `ThingPackage` | `SetAttirbute` | `ItemType, int` | 属性设置分发 |
+| `ThingPackage` | `UseThing` / `UseBatchThing` | `Thing, UseThingReason` / `Thing, int, UseThingReason` | 背包扣除前的物品使用边界 |
+| `ThingPackage` | `AddItem` / `AddItemOneByOne` | `int, int, PlaceType, ThingChangeReason` | 背包新增 |
+| `ThingPackage` | `ReduceItem` | `int, int, ThingChangeReason, bool` / `int, int, PlaceType, ThingChangeReason, bool` | 按 ID 扣除 |
+| `ThingPackage` | `ReduceThingCount` / `RemoveThing` | `Thing, int, ThingChangeReason` / `Thing` | 按实例扣除或移除 |
 | `CharacterAttribute` | `UseItem` | `int, int, ThingChangeReason` | 物品使用完成 |
 | `WidgetItemMiddleTools` | `ArrangePocketItemList` | 无 | 口袋整理 |
 | `WidgetItemOperationButton` | `SubmitConfirmDestoryItem` / `SubmitConfirmDestoryOneItem` | `int` / 无 | 口袋物品摧毁确认 |
@@ -217,7 +221,13 @@ GameManage.ReadArchiveDataAndStartGame  Postfix → ArchiveLoadInvocationReturne
 GameManage.ShowCurrentMapAndCanControl  Postfix → GameplayReady
 GameProcess.PassMinutes                 Postfix → TimeChanged（快照去重）
 Map.FocusMap                            Postfix → MapChanged（地图 ID 去重）
-CharacterAttribute.UseItem              Postfix → PlayerItemAction(Use)
+ThingPackage.UseThing / UseBatchThing   Prefix + Postfix → ItemUseBefore/After（先于背包扣除）
+CharacterAttribute.UseItem              Prefix + Postfix → ItemUseBefore/After（直接调用兜底）
+ThingPackage.UseThing / UseBatchThing    Prefix + Postfix → InventoryChanged（使用前后快照）
+ThingPackage.AddItem / AddItemOneByOne    Prefix + Postfix → InventoryChanged（实际数量差）
+ThingPackage.ReduceItem / ReduceThingCount / RemoveThing
+                                         Prefix + Postfix → InventoryChanged（实际数量差）
+ThingPackage.MoveThingPlace               Prefix + Postfix → InventoryMoved（容器变化）
 WidgetItemMiddleTools.ArrangePocketItemList Postfix → PlayerItemAction(Arrange)
 CharacterAttribute.EquipmentItem          Postfix → PlayerItemAction(Equip)
 CharacterAttribute.RemoveEquipmentItem    Postfix → PlayerItemAction(Unequip)

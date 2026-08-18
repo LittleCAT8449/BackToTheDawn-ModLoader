@@ -1,0 +1,113 @@
+namespace BackToTheDawn.ModAPI;
+
+/// <summary>
+/// High-level category inferred from the game's semantic hook and settlement
+/// metadata (including ThingChangeReason and ShopId).
+/// </summary>
+public enum TradeKind
+{
+    Unknown = 0,
+    GenericPurchase = 1,
+    GenericSale = 2,
+    NpcBuy = 3,
+    NpcSell = 4,
+    NegotiatedTrade = 5,
+    LunchPurchase = 6,
+    GangShopPurchase = 7,
+    PriestShopPurchase = 8,
+    ViceCaptainPurchase = 9,
+    GirlfriendShopPurchase = 10,
+    RoofExchange = 11,
+    TvShopping = 12,
+    Gift = 13,
+    GiftBack = 14,
+    Production = 15,
+    Lottery = 16,
+    Betting = 17,
+    BankDeposit = 18,
+    BankWithdrawal = 19,
+    BankLoan = 20,
+    BankRepayment = 21,
+    ServicePurchase = 22,
+    FreeReceive = 23,
+    SpecialExchange = 24,
+    /// <summary>
+    /// Purchase made through the yard vending machine (shop ID 9).
+    /// The game currently reuses the ViceCaptain reason string for this path,
+    /// so the semantic shop ID is the authoritative discriminator.
+    /// </summary>
+    VendingMachinePurchase = 25,
+}
+
+/// <summary>
+/// Identifies which low-level settlement leg produced an observation.
+/// A single in-game transaction can produce one item signal and one money
+/// signal; the first version intentionally exposes both without pretending
+/// that they are already correlated into one cancellable operation.
+/// </summary>
+public enum TradeLegKind
+{
+    Item = 0,
+    Currency = 1,
+    Combined = 2,
+}
+
+public enum TradeDirection
+{
+    Unknown = 0,
+    PlayerBuys = 1,
+    PlayerSells = 2,
+    PlayerGives = 3,
+    PlayerReceives = 4,
+}
+
+public enum TradeCurrencyKind
+{
+    None = 0,
+    Money = 1,
+    Discipline = 2,
+    /// <summary>
+    /// Relationship/affection points spent or received by a character
+    /// interaction (for example Maggie's mail-order shop).
+    /// </summary>
+    Relationship = 3,
+}
+
+/// <summary>
+/// Settlement phase for transactions that do not finish in the same UI
+/// action. Gang orders and Maggie mail orders are emitted when placed, while
+/// a later delivery observation is emitted with <see cref="Delivered"/>.
+/// </summary>
+public enum TradePhase
+{
+    Immediate = 0,
+    OrderPlaced = 1,
+    Delivered = 2,
+    RelationshipAction = 3,
+}
+
+/// <summary>
+/// Read-only observation emitted after an item or money settlement call.
+/// This event is not cancellable and must not be interpreted as permission
+/// to call the underlying game APIs directly.
+/// </summary>
+public sealed record TradeDetectedEvent(
+    long ObservationId,
+    TradeKind Kind,
+    TradeLegKind Leg,
+    int CharacterId,
+    ItemKey? ItemKey,
+    int ItemDelta,
+    TradeCurrencyKind Currency,
+    int CurrencyDelta,
+    int? ShopId,
+    int? CounterpartyId,
+    string Source,
+    string Reason,
+    string? CounterpartyName = null,
+    TradeDirection Direction = TradeDirection.Unknown,
+    int DisciplineDelta = 0,
+    ShopKey? ShopKey = null,
+    TradePhase Phase = TradePhase.Immediate,
+    int RequestedCount = 0,
+    int RelationshipDelta = 0) : IGameEvent;

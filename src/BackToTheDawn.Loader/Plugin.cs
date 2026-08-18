@@ -21,11 +21,15 @@ public sealed class Plugin : BasePlugin
     private ConfigEntry<bool>? _showConsole;
     private ConfigEntry<bool>? _enableRuntimeProbe;
     private ConfigEntry<bool>? _enableLifecycleHooks;
+    private ConfigEntry<bool>? _enableRuntimeItemInjection;
     private System.Action<Scene, LoadSceneMode>? _sceneLoadedHandler;
     private Harmony? _harmony;
     private ModRegistryRunner? _modRegistryRunner;
     private ModHost? _modHost;
     private LoaderConsole? _loaderConsole;
+    private Action<Item>? _itemRegisteredHandler;
+
+    internal static bool RuntimeItemInjectionEnabled { get; private set; }
 
     internal static ManualLogSource? Logger { get; private set; }
 
@@ -35,6 +39,15 @@ public sealed class Plugin : BasePlugin
         GameEvents.DiagnosticLog = message => Log.LogInfo($"[GameEvents] {message}");
         GameEvents.ErrorLog = message => Log.LogError($"[GameEvents] {message}");
         GameContext.SnapshotProvider = GameContextAdapter.Capture;
+        GameContext.InventoryProvider = GameContextAdapter.CaptureInventory;
+        GameContext.InventoryAddProvider = GameContextAdapter.TryAddInventory;
+        GameContext.InventoryRemoveProvider = GameContextAdapter.TryRemoveInventory;
+        GameContext.InventoryMoveProvider = GameContextAdapter.TryMoveInventory;
+        GameContext.RelationshipProvider = GameContextAdapter.CaptureRelationships;
+        GameContext.InteractiveRelationshipProvider =
+            GameContextAdapter.CaptureInteractiveRelationship;
+        GameContext.ProtagonistRelationshipProvider =
+            GameContextAdapter.CaptureProtagonistRelationship;
 
         _enabled = Config.Bind(
             "General",
@@ -66,6 +79,13 @@ public sealed class Plugin : BasePlugin
             true,
             "Log key main-menu and saved-game loading lifecycle calls through HarmonyX.");
 
+        _enableRuntimeItemInjection = Config.Bind(
+            "Items",
+            "EnableRuntimeItemInjection",
+            true,
+            "Automatically inject registered Mod items into the live c_item table after GameplayReady. Disable this for read-only catalog testing.");
+        RuntimeItemInjectionEnabled = _enableRuntimeItemInjection.Value;
+
         if (!_enabled.Value)
         {
             Log.LogWarning($"{PluginName} is disabled in its configuration file.");
@@ -73,6 +93,9 @@ public sealed class Plugin : BasePlugin
         }
 
         ItemCatalogBootstrap.Initialize();
+        ShopCatalogBootstrap.Initialize();
+        _itemRegisteredHandler = RuntimeItemInjection.OnItemRegistered;
+        ItemRegistry.ItemRegistered += _itemRegisteredHandler;
 
         Log.LogInfo("==================================================");
         Log.LogInfo($"{PluginName} v{PluginVersion} loaded successfully.");
@@ -132,14 +155,26 @@ public sealed class Plugin : BasePlugin
             _loaderConsole = null;
         }
 
+        if (_itemRegisteredHandler is not null)
+        {
+            ItemRegistry.ItemRegistered -= _itemRegisteredHandler;
+            _itemRegisteredHandler = null;
+        }
         _modHost?.Shutdown();
         ModHost.Current = null;
         _modHost = null;
         ModRegistry.Clear();
         GameEvents.ClearSubscribers();
         GameContextAdapter.Reset();
+        TradeSignals.Reset();
         RuntimeItemCatalog.Reset();
+        RuntimeItemInjection.Reset();
+        RuntimeItemAssets.Reset();
+        ItemBehaviorRegistry.Reset();
+        ItemRegistry.Reset();
         ItemCatalog.Reset();
+        ShopCatalog.Reset();
+        RuntimeItemInjectionEnabled = false;
 
         if (_sceneLoadedHandler is not null)
         {

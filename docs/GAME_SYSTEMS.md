@@ -415,18 +415,25 @@ IsPackageConsumeItem, IsTaskItem, IsTreasure
 Use, Arrange, Destroy, Equip, Unequip, Move, OperationSelected
 ```
 
+库存数量变化还通过 `InventoryChangedEvent` 观察 `ThingPackage` 的使用和增删入口。事件在
+原始方法返回后比较真实 `Thing` 实例总数，使用命名空间 `ItemKey`、`Delta`、`TotalCount`
+和字符串形式的游戏原因；它不暴露 `Thing`，也不能取消原始操作。`UseThing` 内部若再调用
+扣除方法，Loader 会合并为一次事件。
+
 已验证的底层入口：
 
 | 语义 | 入口 | 方式 |
 |---|---|---|
-| 使用 | `CharacterAttribute.UseItem(int,int,ThingChangeReason)` | Postfix |
+| 使用 | `ThingPackage.UseThing/UseBatchThing` + `CharacterAttribute.UseItem(int,int,ThingChangeReason)` | Prefix + Postfix |
+| 库存增删 | `ThingPackage.UseThing` / `UseBatchThing` / `AddItem` / `AddItemOneByOne` / `ReduceItem` / `ReduceThingCount` / `RemoveThing` | Prefix + Postfix → `InventoryChanged` |
+| 库存移动 | `ThingPackage.MoveThingPlace(Thing,PlaceType)` / 带数量重载 | Prefix + Postfix → `InventoryMoved` |
 | 整理 | `WidgetItemMiddleTools.ArrangePocketItemList()` | Postfix |
 | 摧毁 | `WidgetItemOperationButton.SubmitConfirmDestoryItem` | Postfix |
 | 装备 | `CharacterAttribute.EquipmentItem(Thing)` | Postfix |
 | 卸下 | `ThingPackage.MoveThingPlace(Thing,PlaceType)` | Prefix + Postfix |
 | 菜单选择 | `WidgetItemOperationButton.ClickA()` | 兜底记录原始操作类型 |
 
-仍值得继续补充的语义事件：赠送、交易、购买、出售、生产消耗、物品移动到房间容器、战斗内使用、物品效果实际结算。通用监视器可以先记录 `CharacterAttribute.UseItem`、`ThingPackage` 的增删/移动和所有 `Change*` 方法，再按实际日志归纳新事件，而不是为每个物品 ID 写一份 Hook。
+仍值得继续补充的语义事件：赠送、交易、购买、出售、生产消耗、物品移动到房间容器、战斗内使用、物品效果实际结算。通用监视器可以先记录 `ThingPackage.UseThing`、`CharacterAttribute.UseItem`、`ThingPackage` 的增删/移动和所有 `Change*` 方法，再按实际日志归纳新事件，而不是为每个物品 ID 写一份 Hook。
 
 ## 8. 属性、效果、Buff 和技能
 
@@ -645,7 +652,7 @@ ModDiscoveredEvent / ModRegistryReadyEvent / ModInitializedEvent / ModShutdownEv
 | 时间 | `GameProcess.PassMinutes` | `TimeChanged` | 已实现 |
 | 地图 | `Map.FocusMap`、`MapManage` | `MapChanged` | 已实现 |
 | 玩家属性 | `ThingPackage.Change*` | `PlayerStateChanged` | 已实现部分属性 |
-| 物品 | `UseItem`、`MoveThingPlace`、操作按钮 | `PlayerItemAction` | 已实现主要菜单动作 |
+| 物品 | `UseThing`/`UseItem`、`MoveThingPlace`、操作按钮 | `PlayerItemAction` + `ItemUseBefore/After` | 已实现主要菜单动作 |
 | 技能 | `CharacterSkill`、`c_skill` | 技能学习/经验变化 | 待验证 |
 | Buff | `CharacterBuffManage`、`c_fight_buff` | Buff 添加/移除/过期 | 待验证 |
 | 战斗 | `BattleManage`、`BattleDamage` | 战斗/回合/伤害/结束 | 待验证 |

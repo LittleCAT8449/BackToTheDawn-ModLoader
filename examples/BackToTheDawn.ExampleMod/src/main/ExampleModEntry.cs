@@ -6,23 +6,31 @@ public sealed class ExampleModEntry : IMod
 {
     private readonly List<IDisposable> _subscriptions = new();
     private ModContext? _context;
+    private DebugTokenItem? _debugItem;
     private bool _logGameplayState;
+    private bool _cancelDebugTokenUse;
+    private bool _unregistrationApiTested;
 
     public void Initialize(ModContext context)
     {
         _context = context;
         _logGameplayState = context.Config.Get("logGameplayState", true);
+        _cancelDebugTokenUse = context.Config.Get("cancelDebugTokenUse", false);
         context.Config.Set("configApiVersion", 1);
+        context.Config.Set("cancelDebugTokenUse", _cancelDebugTokenUse);
         context.Config.Save();
 
-        var debugItem = new DebugTokenItem(context.Manifest.Id);
-        if (debugItem.Register())
+        _debugItem = new DebugTokenItem(context.Manifest.Id);
+        var registration = ModApi.Items.Register(_debugItem);
+        if (registration.Succeeded)
         {
-            context.Logger.Info($"Registered virtual item: {debugItem.Key} ({debugItem.DisplayName}).");
+            context.Logger.Info(
+                $"Registered virtual item: {_debugItem.Key} ({_debugItem.DisplayName}).");
         }
         else
         {
-            context.Logger.Warning($"Virtual item was already registered: {debugItem.Key}.");
+            context.Logger.Warning(
+                $"Virtual item registration failed: {registration.Status} - {registration.Message}");
         }
 
         _subscriptions.Add(GameEvents.Subscribe<StartupStepChangedEvent>(OnStartupStepChanged));
@@ -35,10 +43,16 @@ public sealed class ExampleModEntry : IMod
             _subscriptions.Add(GameEvents.Subscribe<GameplayReadyEvent>(OnGameplayReady));
         }
         _subscriptions.Add(GameEvents.Subscribe<ItemCatalogReadyEvent>(OnItemCatalogReady));
+        _subscriptions.Add(GameEvents.Subscribe<ItemRuntimeReadyEvent>(OnItemRuntimeReady));
         _subscriptions.Add(GameEvents.Subscribe<TimeChangedEvent>(OnTimeChanged));
         _subscriptions.Add(GameEvents.Subscribe<MapChangedEvent>(OnMapChanged));
         _subscriptions.Add(GameEvents.Subscribe<PlayerItemUsedEvent>(OnPlayerItemUsed));
         _subscriptions.Add(GameEvents.Subscribe<PlayerItemActionEvent>(OnPlayerItemAction));
+        _subscriptions.Add(ModApi.Events.Subscribe<InventoryChangedEvent>(OnInventoryChanged));
+        _subscriptions.Add(ModApi.Events.Subscribe<InventoryMovedEvent>(OnInventoryMoved));
+        _subscriptions.Add(ModApi.Events.Subscribe<TradeDetectedEvent>(OnTradeDetected));
+        _subscriptions.Add(ModApi.Events.Subscribe<ItemUseBeforeEvent>(OnItemUseBefore));
+        _subscriptions.Add(ModApi.Events.Subscribe<ItemUseAfterEvent>(OnItemUseAfter));
         if (_logGameplayState)
         {
             _subscriptions.Add(
@@ -53,7 +67,8 @@ public sealed class ExampleModEntry : IMod
             "Example Mod initialized through IMod and static GameEvents.Subscribe<T>().");
         context.Logger.Info(
             $"Config loaded from {context.Config.FilePath} " +
-            $"(logGameplayState={_logGameplayState}).");
+            $"(logGameplayState={_logGameplayState}, " +
+            $"cancelDebugTokenUse={_cancelDebugTokenUse}).");
         if (context.Resources.Exists("README.txt"))
         {
             context.Logger.Info($"Resource directory: {context.Resources.RootDirectory}");
@@ -69,6 +84,9 @@ public sealed class ExampleModEntry : IMod
 
         _subscriptions.Clear();
         _logGameplayState = false;
+        _cancelDebugTokenUse = false;
+        _unregistrationApiTested = false;
+        _debugItem = null;
         _context?.Logger.Info("Example Mod IMod entry shut down.");
         _context = null;
     }
@@ -110,6 +128,12 @@ public sealed class ExampleModEntry : IMod
                 $"energy={state.Player.Energy}/{state.Player.MaxEnergy}, " +
                 $"focus={state.Player.Focus}/{state.Player.MaxFocus}, money={state.Player.Money}.");
         }
+
+        if (ModApi.Game.TryGetInventorySnapshot(out var inventory) && inventory is not null)
+        {
+            Info($"Inventory snapshot: {inventory.Items.Count} stacks, " +
+                 $"debug_token={inventory.GetCount(_debugItem?.Key ?? default)}.");
+        }
     }
 
     private void OnItemCatalogReady(ItemCatalogReadyEvent info)
@@ -137,6 +161,31 @@ public sealed class ExampleModEntry : IMod
                     (effect.Duration > 0 ? $"/{effect.Duration}" : string.Empty)));
             Info($"Painkiller effects: {effectSummary}.");
         }
+    }
+
+    private void OnItemRuntimeReady(ItemRuntimeReadyEvent info)
+    {
+        Info(
+            $"Item runtime ready: catalog={info.CatalogCount}, " +
+            $"injected={info.InjectedCount}, injectionEnabled={info.InjectionEnabled}.");
+
+        // Exercise the public structured unload API after the item has been
+        // assigned a live runtime ID. The expected result is RuntimeBound;
+        // the item must remain registered until the game process exits.
+        if (_unregistrationApiTested ||
+            !info.InjectionEnabled ||
+            info.InjectedCount <= 0 ||
+            _debugItem is null)
+        {
+            return;
+        }
+
+        var result = _debugItem.UnregisterDetailed();
+        Info(
+            $"Unregister API test: status={result.Status}, " +
+            $"succeeded={result.Succeeded}, stillRegistered={_debugItem.IsRegistered}, " +
+            $"message={result.Message}");
+        _unregistrationApiTested = true;
     }
 
     private void OnTimeChanged(TimeChangedEvent info) =>
@@ -171,6 +220,59 @@ public sealed class ExampleModEntry : IMod
             $"count={info.Count}, succeeded={info.Succeeded}, source={info.Source}, " +
             $"rawOperationType={info.RawOperationType}.");
 
+    private void OnInventoryChanged(InventoryChangedEvent info) =>
+        Info(
+            $"Inventory changed: itemKey={info.ItemKey}, delta={info.Delta}, " +
+            $"total={info.TotalCount}, change={info.Change}, succeeded={info.Succeeded}, " +
+            $"source={info.Source}, reason={info.Reason}.");
+
+    private void OnInventoryMoved(InventoryMovedEvent info) =>
+        Info(
+            $"Inventory moved: itemKey={info.ItemKey}, count={info.Count}, " +
+            $"from={info.From.Container}({info.From.PlaceId},{info.From.SubPlaceId}) -> " +
+            $"to={info.To.Container}({info.To.PlaceId},{info.To.SubPlaceId}), " +
+            $"source={info.Source}, succeeded={info.Succeeded}.");
+
+    private void OnTradeDetected(TradeDetectedEvent info) =>
+        Info(
+            $"Trade detected: kind={info.Kind}, leg={info.Leg}, " +
+            $"itemKey={info.ItemKey?.ToString() ?? "<none>"}, " +
+            $"itemDelta={info.ItemDelta}, currency={info.Currency}, " +
+            $"currencyDelta={info.CurrencyDelta}, disciplineDelta={info.DisciplineDelta}, " +
+            $"shopKey={info.ShopKey?.ToString() ?? "<none>"}, " +
+            $"phase={info.Phase}, requestedCount={info.RequestedCount}, " +
+            $"relationshipDelta={info.RelationshipDelta}, " +
+            $"reason={info.Reason}, " +
+            $"source={info.Source}, direction={info.Direction}, " +
+            $"counterparty={info.CounterpartyId?.ToString() ?? "<none>"}/" +
+            $"{info.CounterpartyName ?? "<unknown>"}, observation={info.ObservationId}.");
+
+    private void OnItemUseBefore(ItemUseBeforeEvent info)
+    {
+        // Keep the cancellation test isolated to ExampleMod's own item so
+        // normal game items remain usable during API verification.
+        if (_cancelDebugTokenUse &&
+            _debugItem is not null &&
+            info.Context.ItemKey == _debugItem.Key)
+        {
+            info.Cancel("ExampleMod cancellation test: debug_token is blocked.");
+        }
+
+        Info(
+            $"Item use before: itemKey={info.Context.ItemKey}, " +
+            $"characterId={info.Context.CharacterId}, " +
+            $"source={info.Context.Source}, requestedCount={info.Context.RequestedCount}, " +
+            $"cancelled={info.IsCancelled}.");
+    }
+
+    private void OnItemUseAfter(ItemUseAfterEvent info) =>
+        Info(
+            $"Item use after: itemKey={info.Context.ItemKey}, " +
+            $"source={info.Context.Source}, succeeded={info.Result.Succeeded}, " +
+            $"cancelled={info.Result.Cancelled}, consumed={info.Result.ConsumedCount}, " +
+            $"remaining={info.Result.RemainingCount?.ToString() ?? "<unknown>"}, " +
+            $"reason={info.Result.FailureReason}, message={info.Result.Message ?? "<none>"}.");
+
     private void OnModRegistryReady(ModRegistryReadyEvent info) =>
         Info($"Mod registry ready: {info.Mods.Length} valid, {info.Rejected.Length} rejected.");
 
@@ -191,7 +293,12 @@ public sealed class ExampleModEntry : IMod
                 new ItemKey(@namespace, "debug_token"),
                 "调试令牌",
                 "custom",
-                backgroundDescription: "由 ExampleMod 注册的虚拟物品。")
+                backgroundDescription: "由 ExampleMod 注册的虚拟物品。",
+                maxUse: 1,
+                resources: new ItemResources(
+                    iconPath: "debug_token.png",
+                    namePath: "debug_token.name.txt",
+                    descriptionPath: "debug_token.description.txt"))
         {
         }
     }

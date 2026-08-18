@@ -368,6 +368,10 @@
 | `L_use_limit_des` | `string` | localization |
 | `L_battery_des` | `string` | localization |
 
+`volume` 是游戏配置中的格子占用值；Loader 同时调用 `c_itemExtension.IsFullGrid(c_item)`，
+公共 API 将结果公开为 `ItemDefinition.OccupiesFullGrid` / `Item.OccupiesFullGrid`。这样 Mod
+不需要直接猜测 `0` 或 `1` 的含义；注入到运行时 `c_item` 时再由 Loader 映射回 `volume`。
+
 ## c_itemExtension 分类/读取入口
 
 - `GetName`
