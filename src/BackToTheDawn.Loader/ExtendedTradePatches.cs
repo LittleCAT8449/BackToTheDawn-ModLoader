@@ -79,12 +79,10 @@ internal static class LotteryTicketSubmitPatch
     }
 }
 
-[HarmonyPatch(typeof(ActionBoxingBet), nameof(ActionBoxingBet.BetBoxingMatchByActionId))]
+[HarmonyPatch(typeof(ActionBoxingBet), nameof(ActionBoxingBet.FinishBet))]
 internal static class BoxingBetPatch
 {
-    private static void Prefix(
-        int actionId,
-        out TradeSignals.SemanticTradeState __state)
+    private static void Prefix(out TradeSignals.SemanticTradeState __state)
     {
         __state = TradeSignals.BeginShopTrade(
             TradeKind.Betting,
@@ -92,8 +90,8 @@ internal static class BoxingBetPatch
             261,
             1,
             TradeDirection.PlayerGives,
-            nameof(ActionBoxingBet.BetBoxingMatchByActionId),
-            $"BoxingBet(actionId={actionId})",
+            nameof(ActionBoxingBet.FinishBet),
+            "BoxingBet",
             new ShopKey("backtothedawn", "boxing_betting"));
     }
 
