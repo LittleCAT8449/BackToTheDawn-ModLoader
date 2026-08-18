@@ -29,6 +29,8 @@ internal static class TradeSignals
     // payout or destruction. Keep only the protagonist's active boxing bet.
     private static ActiveBoxingBet? _activeBoxingBet;
     private static BettingTicketOperationState? _pendingBetTicketOperation;
+    private static PendingMatchBet? _activeMatchBet;
+    private static PendingMatchBet? _pendingMatchBetRemoval;
 
     internal static void PublishItem(
         int characterId,
@@ -52,6 +54,36 @@ internal static class TradeSignals
                 delta > 0)
             {
                 SettleBoxingBetWon(characterId, delta, source, reason);
+            }
+
+            if (reason.Contains("MatchBet", StringComparison.OrdinalIgnoreCase))
+            {
+                if (delta < 0)
+                {
+                    _activeMatchBet = new PendingMatchBet(
+                        characterId,
+                        Math.Abs(delta),
+                        DateTime.UtcNow);
+                }
+                else if (delta > 0)
+                {
+                    SettleMatchBetWon(characterId, delta, source, reason);
+                }
+
+                Publish(
+                    TradeKind.Betting,
+                    TradeLegKind.Currency,
+                    characterId,
+                    null,
+                    0,
+                    TradeCurrencyKind.Money,
+                    delta,
+                    source,
+                    reason,
+                    direction: delta < 0
+                        ? TradeDirection.PlayerGives
+                        : TradeDirection.PlayerReceives,
+                    shopKey: new ShopKey("backtothedawn", "match_betting"));
             }
 
             return;
@@ -877,6 +909,65 @@ internal static class TradeSignals
         _activeBoxingBet = null;
     }
 
+    internal static void BeginMatchBetTicketRemoval(Thing? thing)
+    {
+        if (thing?.id != 262 || _activeMatchBet is null)
+        {
+            return;
+        }
+
+        _pendingMatchBetRemoval = _activeMatchBet;
+    }
+
+    internal static void CompleteMatchBetTicketRemoval(bool succeeded)
+    {
+        var pending = _pendingMatchBetRemoval;
+        _pendingMatchBetRemoval = null;
+        if (!succeeded || pending is null)
+        {
+            return;
+        }
+
+        GameEvents.RaiseBetSettled(
+            new BetSettledEvent(
+                BetResult.Lost,
+                pending.CharacterId,
+                ItemCatalog.ResolveOrCreateKey(262),
+                null,
+                pending.Stake,
+                0,
+                0,
+                nameof(ThingPackage.RemoveThing),
+                "MatchBetLoss"));
+        _activeMatchBet = null;
+    }
+
+    private static void SettleMatchBetWon(
+        int characterId,
+        int payout,
+        string source,
+        string reason)
+    {
+        var active = _activeMatchBet;
+        if (active is null || active.CharacterId != characterId)
+        {
+            return;
+        }
+
+        GameEvents.RaiseBetSettled(
+            new BetSettledEvent(
+                BetResult.Won,
+                characterId,
+                ItemCatalog.ResolveOrCreateKey(262),
+                null,
+                active.Stake,
+                payout,
+                0,
+                source,
+                reason));
+        _activeMatchBet = null;
+    }
+
     private static void SettleBoxingBetWon(
         int characterId,
         int payout,
@@ -1147,6 +1238,8 @@ internal static class TradeSignals
         _deferredSemanticTrade = null;
         _activeBoxingBet = null;
         _pendingBetTicketOperation = null;
+        _activeMatchBet = null;
+        _pendingMatchBetRemoval = null;
     }
 
     internal sealed class SemanticTradeState
@@ -1239,6 +1332,11 @@ internal static class TradeSignals
         long TransactionId,
         string Source,
         string Reason);
+
+    private sealed record PendingMatchBet(
+        int CharacterId,
+        int Stake,
+        DateTime Timestamp);
 
     private sealed record DeferredSemanticTrade(
         SemanticTradeState State,

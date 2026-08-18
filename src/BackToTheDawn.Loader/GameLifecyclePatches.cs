@@ -422,19 +422,25 @@ internal static class ThingPackageRemoveThingPatch
     private static void Prefix(
         ThingPackage __instance,
         Thing thing,
-        out GameContextAdapter.InventoryOperationState? __state) =>
+        out GameContextAdapter.InventoryOperationState? __state)
+    {
         __state = GameContextAdapter.BeginInventoryOperation(
             __instance,
             thing?.id ?? 0,
             -(thing?.count ?? 0),
             nameof(ThingPackage.RemoveThing),
             string.Empty);
+        TradeSignals.BeginMatchBetTicketRemoval(thing);
+    }
 
     private static void Postfix(
         ThingPackage __instance,
         bool __result,
-        GameContextAdapter.InventoryOperationState? __state) =>
+        GameContextAdapter.InventoryOperationState? __state)
+    {
         GameContextAdapter.PublishInventoryChanged(__instance, __state, __result);
+        TradeSignals.CompleteMatchBetTicketRemoval(__result);
+    }
 }
 
 [HarmonyPatch(typeof(WidgetItemMiddleTools), nameof(WidgetItemMiddleTools.ArrangePocketItemList))]
