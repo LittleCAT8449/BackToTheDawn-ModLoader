@@ -20,6 +20,9 @@ public static class GameEvents
     public static event Action<InventoryChangedEvent>? InventoryChanged;
     public static event Action<InventoryMovedEvent>? InventoryMoved;
     public static event Action<TradeDetectedEvent>? TradeDetected;
+    public static event Action<TradeStartedEvent>? TradeStarted;
+    public static event Action<TradeCompletedEvent>? TradeCompleted;
+    public static event Action<TradeFailedEvent>? TradeFailed;
     public static event Action<ItemUseBeforeEvent>? ItemUseBefore;
     public static event Action<ItemUseAfterEvent>? ItemUseAfter;
     public static event Action<ModDiscoveredEvent>? ModDiscovered;
@@ -156,6 +159,30 @@ public static class GameEvents
                 handler((TEvent)(object)value);
             TradeDetected += wrapper;
             return new Subscription(() => TradeDetected -= wrapper);
+        }
+
+        if (typeof(TEvent) == typeof(TradeStartedEvent))
+        {
+            Action<TradeStartedEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            TradeStarted += wrapper;
+            return new Subscription(() => TradeStarted -= wrapper);
+        }
+
+        if (typeof(TEvent) == typeof(TradeCompletedEvent))
+        {
+            Action<TradeCompletedEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            TradeCompleted += wrapper;
+            return new Subscription(() => TradeCompleted -= wrapper);
+        }
+
+        if (typeof(TEvent) == typeof(TradeFailedEvent))
+        {
+            Action<TradeFailedEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            TradeFailed += wrapper;
+            return new Subscription(() => TradeFailed -= wrapper);
         }
 
         if (typeof(TEvent) == typeof(ItemUseBeforeEvent))
@@ -353,6 +380,15 @@ public static class GameEvents
     internal static void RaiseTradeDetected(TradeDetectedEvent value) =>
         Raise(TradeDetected, value, nameof(TradeDetected));
 
+    internal static void RaiseTradeStarted(TradeTransaction value) =>
+        Raise(TradeStarted, new TradeStartedEvent(value), nameof(TradeStarted));
+
+    internal static void RaiseTradeCompleted(TradeTransaction value) =>
+        Raise(TradeCompleted, new TradeCompletedEvent(value), nameof(TradeCompleted));
+
+    internal static void RaiseTradeFailed(TradeTransaction value) =>
+        Raise(TradeFailed, new TradeFailedEvent(value), nameof(TradeFailed));
+
     internal static ItemUseBeforeEvent RaiseItemUseBefore(ItemUseContext context)
     {
         var value = new ItemUseBeforeEvent(context);
@@ -417,6 +453,9 @@ public static class GameEvents
         InventoryChanged = null;
         InventoryMoved = null;
         TradeDetected = null;
+        TradeStarted = null;
+        TradeCompleted = null;
+        TradeFailed = null;
         ItemUseBefore = null;
         ItemUseAfter = null;
         ModDiscovered = null;

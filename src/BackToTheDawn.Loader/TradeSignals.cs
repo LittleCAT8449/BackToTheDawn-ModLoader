@@ -10,6 +10,7 @@ namespace BackToTheDawn.Loader;
 internal static class TradeSignals
 {
     private static long _nextObservationId;
+    private static long _nextTransactionId;
 
     [ThreadStatic]
     private static Stack<SemanticTradeState>? _semanticTrades;
@@ -200,6 +201,7 @@ internal static class TradeSignals
             ? ItemCatalog.ResolveOrCreateKey(itemId)
             : (ItemKey?)null;
         var state = new SemanticTradeState(
+            Interlocked.Increment(ref _nextTransactionId),
             kind,
             itemKey,
             Math.Max(requestedCount, 0),
@@ -211,10 +213,12 @@ internal static class TradeSignals
         state.BeforeItemCount = itemKey is null
             ? 0
             : GameContext.Inventory?.GetCount(itemKey.Value) ?? 0;
+        CaptureCurrencyBaselines(state);
         state.BeforeMoney = GameContext.Player?.Money ?? 0;
         state.BeforeDiscipline = GameContext.Player?.Discipline ?? 0;
 
         (_semanticTrades ??= new Stack<SemanticTradeState>()).Push(state);
+        RaiseTradeStarted(state);
         return state;
     }
 
@@ -233,6 +237,7 @@ internal static class TradeSignals
             ? ItemCatalog.ResolveOrCreateKey(itemId)
             : (ItemKey?)null;
         var state = new SemanticTradeState(
+            Interlocked.Increment(ref _nextTransactionId),
             kind,
             itemKey,
             Math.Max(requestedCount, 0),
@@ -247,17 +252,20 @@ internal static class TradeSignals
         state.BeforeItemCount = itemKey is null
             ? 0
             : GameContext.Inventory?.GetCount(itemKey.Value) ?? 0;
+        CaptureCurrencyBaselines(state);
         state.BeforeMoney = GameContext.Player?.Money ?? 0;
         state.BeforeDiscipline = GameContext.Player?.Discipline ?? 0;
         ConsumePendingSettlement(state, reason);
 
         (_semanticTrades ??= new Stack<SemanticTradeState>()).Push(state);
+        RaiseTradeStarted(state);
         return state;
     }
 
     internal static void EndNpcTrade(
         SemanticTradeState? state,
-        bool succeeded = true)
+        bool succeeded = true,
+        string? failureReason = null)
     {
         if (state is null || state.Completed)
         {
@@ -283,7 +291,13 @@ internal static class TradeSignals
             }
         }
 
-        if (!succeeded || stack is not null && stack.Count > 0)
+        if (!succeeded)
+        {
+            RaiseTradeFailed(state, failureReason ?? "Trade method threw an exception.");
+            return;
+        }
+
+        if (stack is not null && stack.Count > 0)
         {
             return;
         }
@@ -298,6 +312,8 @@ internal static class TradeSignals
             var itemDelta = afterItemCount - state.BeforeItemCount;
             var moneyDelta = afterMoney - state.BeforeMoney + state.ExternalMoneyDelta;
             var disciplineDelta = afterDiscipline - state.BeforeDiscipline;
+            var chipsDelta = ReadCurrencyCount(274) - state.BeforeChips;
+            var gangContributionDelta = ReadCurrencyCount(1001) - state.BeforeGangContribution;
             var relationshipDelta = state.RelationshipDelta + state.ExternalRelationshipDelta;
             if (relationshipDelta == 0 && state.ExpectedRelationshipDelta != 0)
             {
@@ -305,7 +321,8 @@ internal static class TradeSignals
             }
 
             if (itemDelta == 0 && moneyDelta == 0 && disciplineDelta == 0 &&
-                relationshipDelta == 0 && state.Phase != TradePhase.OrderPlaced)
+                relationshipDelta == 0 && chipsDelta == 0 &&
+                gangContributionDelta == 0 && state.Phase != TradePhase.OrderPlaced)
             {
                 return;
             }
@@ -344,12 +361,20 @@ internal static class TradeSignals
                         ? TradeCurrencyKind.Discipline
                         : relationshipDelta != 0
                             ? TradeCurrencyKind.Relationship
-                            : TradeCurrencyKind.None,
+                            : chipsDelta != 0
+                                ? TradeCurrencyKind.Chips
+                                : gangContributionDelta != 0
+                                    ? TradeCurrencyKind.GangContribution
+                                    : TradeCurrencyKind.None,
                 moneyDelta != 0
                     ? moneyDelta
                     : disciplineDelta != 0
                         ? disciplineDelta
-                        : relationshipDelta,
+                        : relationshipDelta != 0
+                            ? relationshipDelta
+                            : chipsDelta != 0
+                                ? chipsDelta
+                                : gangContributionDelta,
                 state.Source,
                 state.ObservedReason ?? state.Reason,
                 state.CounterpartyId,
@@ -360,7 +385,20 @@ internal static class TradeSignals
                 state.ShopKey,
                 state.Phase,
                 state.RequestedCount,
-                relationshipDelta);
+                relationshipDelta,
+                state.TransactionId,
+                TradeStatus.Completed);
+
+            RaiseTradeCompleted(
+                state,
+                itemDelta,
+                moneyDelta,
+                disciplineDelta,
+                relationshipDelta,
+                chipsDelta,
+                gangContributionDelta,
+                kind,
+                state.ObservedReason ?? state.Reason);
         }
         catch (Exception exception)
         {
@@ -386,7 +424,9 @@ internal static class TradeSignals
         ShopKey? shopKey = null,
         TradePhase phase = TradePhase.Immediate,
         int requestedCount = 0,
-        int relationshipDelta = 0)
+        int relationshipDelta = 0,
+        long transactionId = 0,
+        TradeStatus status = TradeStatus.Completed)
     {
         if (!GameContextAdapter.IsGameplayReady || characterId == 0)
         {
@@ -428,12 +468,218 @@ internal static class TradeSignals
                     resolvedShopKey,
                     phase,
                     requestedCount,
-                    relationshipDelta));
+                    relationshipDelta,
+                    transactionId,
+                    status));
         }
         catch (Exception exception)
         {
             Plugin.Logger?.LogError(
                 $"[TradeHook] Failed to publish {kind} ({reason}): {exception}");
+        }
+    }
+
+    private static void RaiseTradeStarted(SemanticTradeState state)
+    {
+        var characterId = CharacterManage.protagonistAttribute?.id ?? 0;
+        if (!GameContextAdapter.IsGameplayReady || characterId == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            GameEvents.RaiseTradeStarted(
+                CreateTransaction(
+                    state,
+                    TradeStatus.Started,
+                    state.Kind,
+                    TradeCurrencyKind.None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    state.Reason));
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger?.LogError(
+                $"[TradeHook] Failed to publish transaction start {state.TransactionId}: {exception}");
+        }
+    }
+
+    private static void RaiseTradeCompleted(
+        SemanticTradeState state,
+        int itemDelta,
+        int moneyDelta,
+        int disciplineDelta,
+        int relationshipDelta,
+        int chipsDelta,
+        int gangContributionDelta,
+        TradeKind kind,
+        string reason)
+    {
+        var currency = ResolveCurrency(
+            moneyDelta,
+            disciplineDelta,
+            relationshipDelta,
+            chipsDelta,
+            gangContributionDelta);
+        var currencyDelta = currency switch
+        {
+            TradeCurrencyKind.Money => moneyDelta,
+            TradeCurrencyKind.Discipline => disciplineDelta,
+            TradeCurrencyKind.Relationship => relationshipDelta,
+            TradeCurrencyKind.Chips => chipsDelta,
+            TradeCurrencyKind.GangContribution => gangContributionDelta,
+            _ => 0,
+        };
+
+        var characterId = CharacterManage.protagonistAttribute?.id ?? 0;
+        if (!GameContextAdapter.IsGameplayReady || characterId == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            GameEvents.RaiseTradeCompleted(
+                CreateTransaction(
+                    state,
+                    TradeStatus.Completed,
+                    kind,
+                    currency,
+                    currencyDelta,
+                    itemDelta,
+                    moneyDelta,
+                    disciplineDelta,
+                    relationshipDelta,
+                    reason));
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger?.LogError(
+                $"[TradeHook] Failed to publish transaction completion {state.TransactionId}: {exception}");
+        }
+    }
+
+    private static void RaiseTradeFailed(
+        SemanticTradeState state,
+        string failureReason)
+    {
+        var characterId = CharacterManage.protagonistAttribute?.id ?? 0;
+        if (!GameContextAdapter.IsGameplayReady || characterId == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            GameEvents.RaiseTradeFailed(
+                CreateTransaction(
+                    state,
+                    TradeStatus.Failed,
+                    state.Kind,
+                    TradeCurrencyKind.None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    state.ObservedReason ?? state.Reason,
+                    failureReason));
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger?.LogError(
+                $"[TradeHook] Failed to publish transaction failure {state.TransactionId}: {exception}");
+        }
+    }
+
+    private static TradeTransaction CreateTransaction(
+        SemanticTradeState state,
+        TradeStatus status,
+        TradeKind kind,
+        TradeCurrencyKind currency,
+        int currencyDelta,
+        int itemDelta,
+        int moneyDelta,
+        int disciplineDelta,
+        int relationshipDelta,
+        string reason,
+        string? failureReason = null)
+    {
+        var shopKey = state.ShopKey;
+        if (shopKey is null && state.ShopId.HasValue &&
+            ShopCatalog.TryGetByNativeId(state.ShopId.Value, out var descriptor))
+        {
+            shopKey = descriptor.Key;
+        }
+
+        return new TradeTransaction(
+            state.TransactionId,
+            kind,
+            status,
+            state.Phase,
+            CharacterManage.protagonistAttribute?.id ?? 0,
+            state.ItemKey,
+            state.RequestedCount,
+            itemDelta,
+            currency,
+            currencyDelta,
+            disciplineDelta,
+            relationshipDelta,
+            state.Direction,
+            shopKey,
+            state.ShopId,
+            state.CounterpartyId,
+            state.CounterpartyName,
+            state.Source,
+            reason,
+            failureReason);
+    }
+
+    private static TradeCurrencyKind ResolveCurrency(
+        int moneyDelta,
+        int disciplineDelta,
+        int relationshipDelta,
+        int chipsDelta,
+        int gangContributionDelta) =>
+        moneyDelta != 0
+            ? TradeCurrencyKind.Money
+            : disciplineDelta != 0
+                ? TradeCurrencyKind.Discipline
+                : relationshipDelta != 0
+                    ? TradeCurrencyKind.Relationship
+                    : chipsDelta != 0
+                        ? TradeCurrencyKind.Chips
+                        : gangContributionDelta != 0
+                            ? TradeCurrencyKind.GangContribution
+                            : TradeCurrencyKind.None;
+
+    private static void CaptureCurrencyBaselines(SemanticTradeState state)
+    {
+        state.BeforeChips = ReadCurrencyCount(274);
+        state.BeforeGangContribution = ReadCurrencyCount(1001);
+    }
+
+    private static int ReadCurrencyCount(int nativeItemId)
+    {
+        try
+        {
+            var inventory = GameContext.Inventory;
+            if (inventory is null)
+            {
+                return 0;
+            }
+
+            var key = ItemCatalog.ResolveOrCreateKey(nativeItemId);
+            return inventory.GetCount(key);
+        }
+        catch
+        {
+            return 0;
         }
     }
 
@@ -639,12 +885,15 @@ internal static class TradeSignals
     internal static void Reset()
     {
         _nextObservationId = 0;
+        _nextTransactionId = 0;
         _semanticTrades?.Clear();
+        _pendingSettlement = null;
     }
 
     internal sealed class SemanticTradeState
     {
         internal SemanticTradeState(
+            long transactionId,
             TradeKind kind,
             ItemKey? itemKey,
             int requestedCount,
@@ -656,6 +905,7 @@ internal static class TradeSignals
             ShopKey? shopKey = null,
             TradePhase phase = TradePhase.Immediate)
         {
+            TransactionId = transactionId;
             Kind = kind;
             ItemKey = itemKey;
             RequestedCount = requestedCount;
@@ -669,6 +919,7 @@ internal static class TradeSignals
             Phase = phase;
         }
 
+        internal long TransactionId { get; }
         internal TradeKind Kind { get; }
         internal ItemKey? ItemKey { get; }
         internal int RequestedCount { get; }
@@ -684,6 +935,8 @@ internal static class TradeSignals
         internal int BeforeItemCount { get; set; }
         internal int BeforeMoney { get; set; }
         internal int BeforeDiscipline { get; set; }
+        internal int BeforeChips { get; set; }
+        internal int BeforeGangContribution { get; set; }
         internal int RelationshipDelta { get; set; }
         internal int ExternalMoneyDelta { get; set; }
         internal int ExternalRelationshipDelta { get; set; }

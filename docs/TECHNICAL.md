@@ -691,6 +691,25 @@ _subscriptions.Add(ModApi.Events.Subscribe<TradeDetectedEvent>(info =>
 }));
 ```
 
+交易现在还有统一的事务生命周期事件。`TradeStartedEvent` 在语义入口建立事务时触发，
+`TradeCompletedEvent` 在真实库存/货币结算后触发，`TradeFailedEvent` 在入口抛出异常时触发；
+三者通过同一个进程内 `TransactionId` 关联：
+
+```csharp
+_subscriptions.Add(ModApi.Events.Subscribe<TradeCompletedEvent>(info =>
+{
+    var tx = info.Transaction;
+    context.Logger.Info(
+        $"tx={tx.TransactionId}, kind={tx.Kind}, itemDelta={tx.ItemDelta}, " +
+        $"currency={tx.Currency}, currencyDelta={tx.CurrencyDelta}, " +
+        $"phase={tx.Phase}");
+}));
+```
+
+`TradeDetectedEvent.ObservationId` 仍表示底层观察记录；需要关联同一笔语义交易时使用
+`TradeDetectedEvent.TransactionId` 或生命周期事件中的 `TradeTransaction.TransactionId`。
+事务 ID 只在当前游戏进程内有效，不应写入存档或作为永久 ID。
+
 当前 `TradeKind` 可以区分囚犯买卖、普通购买、讨价还价、午餐、帮派/教士/副队长商店、
 自动售货机（`ShopId=9`）、屋顶兑换、电视购物、赠送/回礼、生产、彩票、下注、银行、服务购买、
 免费领取和特殊兑换。游戏会把自动售货机复用为 `BuyViceCaptainShopGoods` 原因码，Loader
@@ -702,7 +721,8 @@ _subscriptions.Add(ModApi.Events.Subscribe<TradeDetectedEvent>(info =>
 因此模组不需要仅凭 `ThingChangeReason=Buy` 猜测交易对象。
 物品和金钱可能分别产生一条事件，因此 `ObservationId` 是观察信号 ID，不是已经关联好的
 完整交易 ID；语义交易会在入口方法返回后比较真实库存、金钱和纪律变化并合并成一条事件。
-第一版事件只读、不可取消，也不保证每种剧情交易都能提供完整对象信息。
+交易事件只读、不可取消；失败事件目前覆盖语义入口抛出的异常，余额不足、售罄和权限限制
+等“方法正常返回但未结算”的细分原因仍需针对具体商店补充。
 游戏内部的 `backtothedawn:money` 伪物品变化会被过滤，金钱只通过 `CurrencyDelta` 报告。
 纪律/表现通过 `DisciplineDelta` 报告；屋顶交易可以在同一事件中同时携带金钱和纪律变化。
 关系值通过 `TradeCurrencyKind.Relationship` 与 `RelationshipDelta` 报告。

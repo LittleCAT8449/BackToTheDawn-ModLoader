@@ -29,9 +29,9 @@
 | 电视购物 | `TVShopping`、`StorageTVShoppingInfo`、`TVShopGoodsHistory` | 已确认入口，待验证订单结算 |
 | 女友商店包裹 | `StorageGirlFriendShopBuyHistory` | 已确认购买记录与后续领取 |
 | 赠送与回礼 | `Prefab_OneGift`、`GiftBackLogic`、`ActionGiftBack` | 已确认社会关系交换 |
-| 彩票与下注 | `UI_BuyLotteryTickets`、`ActionBoxingBet`、`UI_MatchBet` | 已确认入口，待验证筹码/奖金变化 |
+| 彩票与下注 | `UI_BuyLotteryTickets`、`ActionBoxingBet`、`UI_MatchBet` | 语义入口已接入，待运行验证筹码/奖金变化 |
 | 生产与烹饪 | `Prefab_OneProduce`、`StorageProduceInfo`、`ProduceHistory` | 已确认材料/精力/时间结算 |
-| 银行金融 | `ActionBank`、`StorageBankInfo` | 已确认存款、取款、贷款、还款和利息 |
+| 银行金融 | `ActionBank`、`StorageBankInfo` | 语义入口已接入，利息字段待运行验证 |
 | 服务和剧情交换 | `ActionBuyCertificate`、`ActionBuyDiscipline`、`ActionBuySZZ`、申请系统及剧情 Action | 已确认专用入口，暂不抽象成普通商店 |
 
 `ThingChangeReason` 已出现的交易相关来源包括：
@@ -54,19 +54,19 @@ ReceiveGirlFriendPackage, ReceiveWeekFreeGoods
 
 ### T1. 统一交易模型
 
-- [ ] 定义 `TradeKind`，至少覆盖 `NpcBuy`、`NpcSell`、`ShopBuy`、`GangShop`、`TvShopping`、`Gift`、`Production`、`Lottery`、`Bet`、`Bank` 和 `Service`。
-- [ ] 定义 `TradeStatus`：`Started`、`Succeeded`、`Cancelled`、`Failed`。
-- [ ] 定义 `TradeCurrency`：`Money`、`Discipline`、`Chips`、`GangContribution`、`Relationship` 和 `Item`。
+- [x] 定义 `TradeKind`，至少覆盖 `NpcBuy`、`NpcSell`、`ShopBuy`、`GangShop`、`TvShopping`、`Gift`、`Production`、`Lottery`、`Bet`、`Bank` 和 `Service`。
+- [x] 定义基础 `TradeStatus`：`Started`、`Completed`、`Cancelled`、`Failed`。
+- [x] 定义 `TradeCurrency`：`Money`、`Discipline`、`Chips`、`GangContribution`、`Relationship` 和 `Item`（物品变化由 `ItemDelta` 表示）。
 - [ ] 所有物品使用 `ItemKey`，不在公共事件中暴露数字 ID。
-- [ ] 每次交易拥有唯一 `TransactionId`，用于关联库存和属性变化。
+- [x] 每次语义交易拥有进程内唯一 `TransactionId`，用于关联生命周期与结算观察。
 
 ### T2. 交易事件
 
 - [x] 提供基础只读的 `TradeDetectedEvent`，按库存/金钱/纪律结算信号判断交易类型。
 - [x] 为囚犯买卖增加语义交易观察，合并入口方法返回前后的库存/金钱变化。
-- [ ] 提供只读的 `TradeStartedEvent`。
-- [ ] 提供只读的 `TradeCompletedEvent`，包含实际物品变化、货币变化、来源和对象。
-- [ ] 提供 `TradeFailedEvent`，区分余额不足、库存不足、权限不足、库存已满、商品售罄和前置条件不满足。
+- [x] 提供只读的 `TradeStartedEvent`。
+- [x] 提供只读的 `TradeCompletedEvent`，包含实际物品变化、货币变化、来源和对象。
+- [x] 提供基础 `TradeFailedEvent`；余额不足、库存不足、权限不足、库存已满、商品售罄和前置条件不满足的细分原因仍待逐类补齐。
 - [ ] 只在底层确实能阻止操作时提供 `BeforeTradeEvent`；不能取消的路径不得伪装成可取消事件。
 - [ ] 交易事件必须在真实状态结算之后发布，不能只根据按钮点击发布成功事件。
 - [ ] 将同一交易的物品腿和金钱腿关联为稳定的 `TransactionId`。
@@ -173,8 +173,8 @@ public sealed record TradeCompletedEvent(
 
 ### Trade Phase 3：金融、下注和服务
 
-- [ ] 实现彩票、拳赛下注和比赛下注事件。
-- [ ] 实现银行存取款、贷款和还款事件。
+- [x] 接入彩票购票、拳赛下注/兑奖和比赛下注入口；筹码通过 `TradeCurrencyKind.Chips` 表示。
+- [x] 接入银行存款、取款、贷款和还款入口；利息仍需在运行时验证并补充专用字段。
 - [ ] 实现证件、申请、纪律等服务型交易事件。
 
 ### Trade Phase 4：公共服务 API

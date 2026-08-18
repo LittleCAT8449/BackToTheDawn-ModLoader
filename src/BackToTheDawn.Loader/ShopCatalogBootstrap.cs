@@ -27,6 +27,9 @@ internal static class ShopCatalogBootstrap
                 Native("excess_benefit", "超额福利", 17),
                 Native("church_goods", "教会财物", 18),
                 Native("rocky_shop", "洛奇", 19),
+                Semantic("bank", "银行"),
+                Semantic("boxing_betting", "拳赛下注"),
+                Semantic("match_betting", "比赛下注"),
                 Semantic("barber_shop", "理发店"),
             });
 

@@ -51,6 +51,9 @@ public sealed class ExampleModEntry : IMod
         _subscriptions.Add(ModApi.Events.Subscribe<InventoryChangedEvent>(OnInventoryChanged));
         _subscriptions.Add(ModApi.Events.Subscribe<InventoryMovedEvent>(OnInventoryMoved));
         _subscriptions.Add(ModApi.Events.Subscribe<TradeDetectedEvent>(OnTradeDetected));
+        _subscriptions.Add(ModApi.Events.Subscribe<TradeStartedEvent>(OnTradeStarted));
+        _subscriptions.Add(ModApi.Events.Subscribe<TradeCompletedEvent>(OnTradeCompleted));
+        _subscriptions.Add(ModApi.Events.Subscribe<TradeFailedEvent>(OnTradeFailed));
         _subscriptions.Add(ModApi.Events.Subscribe<ItemUseBeforeEvent>(OnItemUseBefore));
         _subscriptions.Add(ModApi.Events.Subscribe<ItemUseAfterEvent>(OnItemUseAfter));
         if (_logGameplayState)
@@ -242,10 +245,32 @@ public sealed class ExampleModEntry : IMod
             $"shopKey={info.ShopKey?.ToString() ?? "<none>"}, " +
             $"phase={info.Phase}, requestedCount={info.RequestedCount}, " +
             $"relationshipDelta={info.RelationshipDelta}, " +
+            $"tx={info.TransactionId}, status={info.Status}, " +
             $"reason={info.Reason}, " +
             $"source={info.Source}, direction={info.Direction}, " +
             $"counterparty={info.CounterpartyId?.ToString() ?? "<none>"}/" +
             $"{info.CounterpartyName ?? "<unknown>"}, observation={info.ObservationId}.");
+
+    private void OnTradeStarted(TradeStartedEvent info) =>
+        Info(
+            $"Trade started: tx={info.Transaction.TransactionId}, " +
+            $"kind={info.Transaction.Kind}, phase={info.Transaction.Phase}, " +
+            $"item={info.Transaction.ItemKey?.ToString() ?? "<none>"}, " +
+            $"shopKey={info.Transaction.ShopKey?.ToString() ?? "<none>"}, " +
+            $"reason={info.Transaction.Reason}.");
+
+    private void OnTradeCompleted(TradeCompletedEvent info) =>
+        Info(
+            $"Trade completed: tx={info.Transaction.TransactionId}, " +
+            $"kind={info.Transaction.Kind}, itemDelta={info.Transaction.ItemDelta}, " +
+            $"currency={info.Transaction.Currency}, " +
+            $"currencyDelta={info.Transaction.CurrencyDelta}, " +
+            $"phase={info.Transaction.Phase}.");
+
+    private void OnTradeFailed(TradeFailedEvent info) =>
+        Warning(
+            $"Trade failed: tx={info.Transaction.TransactionId}, " +
+            $"kind={info.Transaction.Kind}, reason={info.Transaction.FailureReason ?? "<unknown>"}.");
 
     private void OnItemUseBefore(ItemUseBeforeEvent info)
     {

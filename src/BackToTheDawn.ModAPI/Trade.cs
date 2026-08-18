@@ -71,6 +71,14 @@ public enum TradeCurrencyKind
     /// interaction (for example Maggie's mail-order shop).
     /// </summary>
     Relationship = 3,
+    /// <summary>
+    /// Casino/lottery chips represented by the game's Chips item.
+    /// </summary>
+    Chips = 4,
+    /// <summary>
+    /// Gang contribution points represented by the game's gang resource.
+    /// </summary>
+    GangContribution = 5,
 }
 
 /// <summary>
@@ -85,6 +93,47 @@ public enum TradePhase
     Delivered = 2,
     RelationshipAction = 3,
 }
+
+public enum TradeStatus
+{
+    Started = 0,
+    Completed = 1,
+    Failed = 2,
+    Cancelled = 3,
+}
+
+/// <summary>
+/// Stable transaction envelope shared by the lifecycle events. A transaction
+/// ID links the semantic method entry with its eventual settlement; it is
+/// process-local and must not be persisted as a game save identifier.
+/// </summary>
+public sealed record TradeTransaction(
+    long TransactionId,
+    TradeKind Kind,
+    TradeStatus Status,
+    TradePhase Phase,
+    int CharacterId,
+    ItemKey? ItemKey,
+    int RequestedCount,
+    int ItemDelta,
+    TradeCurrencyKind Currency,
+    int CurrencyDelta,
+    int DisciplineDelta,
+    int RelationshipDelta,
+    TradeDirection Direction,
+    ShopKey? ShopKey,
+    int? ShopId,
+    int? CounterpartyId,
+    string? CounterpartyName,
+    string Source,
+    string Reason,
+    string? FailureReason = null) : IGameEvent;
+
+public sealed record TradeStartedEvent(TradeTransaction Transaction) : IGameEvent;
+
+public sealed record TradeCompletedEvent(TradeTransaction Transaction) : IGameEvent;
+
+public sealed record TradeFailedEvent(TradeTransaction Transaction) : IGameEvent;
 
 /// <summary>
 /// Read-only observation emitted after an item or money settlement call.
@@ -110,4 +159,6 @@ public sealed record TradeDetectedEvent(
     ShopKey? ShopKey = null,
     TradePhase Phase = TradePhase.Immediate,
     int RequestedCount = 0,
-    int RelationshipDelta = 0) : IGameEvent;
+    int RelationshipDelta = 0,
+    long TransactionId = 0,
+    TradeStatus Status = TradeStatus.Completed) : IGameEvent;
