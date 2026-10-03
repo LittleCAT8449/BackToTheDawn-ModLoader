@@ -62,6 +62,19 @@ public static class ShopGoodsCatalog
         GameEvents.RaiseShopGoodsObserved(value);
     }
 
+    internal static void Remove(ShopKey shopKey, ItemKey itemKey)
+    {
+        lock (SyncRoot)
+        {
+            if (!_goods.Remove(Key(shopKey, itemKey))) return;
+            _all = _goods.Values
+                .OrderBy(item => item.ShopKey.ToString())
+                .ThenBy(item => item.ItemKey.ToString())
+                .ToArray();
+            IsAvailable = _goods.Count > 0;
+        }
+    }
+
     internal static void Reset()
     {
         lock (SyncRoot)

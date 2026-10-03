@@ -1,5 +1,7 @@
 using BackToTheDawn.ModAPI;
 using HarmonyLib;
+using UnityEngine;
+using UnityEngine.UI;
 
 namespace BackToTheDawn.Loader;
 
@@ -260,11 +262,317 @@ internal static class WidgetGiftItemTipsReceivePatch
     }
 }
 
-[HarmonyPatch(typeof(UI_ShopListUnit), nameof(UI_ShopListUnit.SubmitBuy))]
-internal static class UiShopListUnitSubmitBuyPatch
+[HarmonyPatch(typeof(UI_ShopListUnit), nameof(UI_ShopListUnit.InitShopListUnit))]
+internal static class UiShopListUnitInitPatch
 {
-    private static void Prefix(
+    private static void Postfix(UI_ShopListUnit __instance, int shopId)
+    {
+        if (!ShopCatalog.TryGetByNativeId(shopId, out var shop) ||
+            shop.Source != ShopSource.Synthetic)
+        {
+            return;
+        }
+
+        var selector = __instance.widgetItemListSelectCount;
+        if (selector is null || selector.maxSelectCount < 1)
+        {
+            return;
+        }
+
+        if (selector.currentSelectCount == 0)
+        {
+            var targetCount = Math.Max(selector.atLeastCount, 1);
+            if (!selector.SetCount(targetCount))
+            {
+                Plugin.Logger?.LogWarning(
+                    $"[ShopQuantity] Could not set Mod shop {shopId} purchase count to {targetCount} after row initialization.");
+            }
+        }
+
+        // InitShopListUnit initializes the selector and then updates the item
+        // icon from soldCount, which can overwrite the visible purchase count.
+        // Re-run the native callback after the whole row is initialized.
+        try
+        {
+            __instance.ChangeCountCallBack();
+            __instance.widgetItem?.ShowFractionCount(
+                selector.currentSelectCount,
+                selector.maxSelectCount);
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger?.LogWarning(
+                $"[ShopQuantity] Refreshing Mod shop row {shopId} failed: {exception.Message}");
+        }
+        Plugin.Logger?.LogInfo(
+            $"[ShopQuantity] Mod shop row initialized: shop={shopId}, " +
+            $"current={selector.currentSelectCount}, max={selector.maxSelectCount}, " +
+            $"display={__instance.widgetItem?.numerator}/{__instance.widgetItem?.denominator}.");
+    }
+}
+
+// The game fills this label from its native item-price table. Mod-registered
+// offers carry their price on c_shop.goods_price instead, so the native row
+// otherwise leaves the visible price at zero even though checkout charges the
+// configured amount.
+[HarmonyPatch(typeof(UI_ShopListUnit), nameof(UI_ShopListUnit.ChangeCountCallBack))]
+internal static class UiShopListUnitPriceDisplayPatch
+{
+    private static void Postfix(UI_ShopListUnit __instance)
+    {
+        if (!ModShopPriceDisplay.TryGetPrice(__instance, out var shopId, out var shopConfig, out var unitPrice))
+        {
+            return;
+        }
+
+        var priceText = __instance.costMoneyText;
+        if (priceText is null)
+        {
+            return;
+        }
+
+        var displayedPrice = unitPrice.ToString();
+        if (priceText.text == displayedPrice)
+        {
+            return;
+        }
+
+        var previousPrice = priceText.text;
+        priceText.text = displayedPrice;
+        Plugin.Logger?.LogInfo(
+            $"[ShopQuantity] Refreshed Mod shop unit price: shop={shopId}, " +
+            $"item={shopConfig.goods_item}, previous='{previousPrice}', price={displayedPrice}.");
+    }
+}
+
+internal static class ModShopPriceDisplay
+{
+    internal static bool TryGetPrice(
+        UI_ShopListUnit row,
+        out int shopId,
+        out c_shop shopConfig,
+        out int unitPrice)
+    {
+        shopId = row.shopId != 0 ? row.shopId : row.config?.shopConfig?.shop_id ?? 0;
+        shopConfig = row.config?.shopConfig!;
+        unitPrice = 0;
+        if (!ShopRuntime.IsSyntheticShop(shopId) || shopConfig is null)
+        {
+            return false;
+        }
+
+        unitPrice = Math.Max(0, shopConfig.goods_price);
+        return true;
+    }
+}
+
+// The game performs a later row refresh after InitShopListUnit and writes its
+// item-table price (zero for injected offers) straight back into the label.
+// Intercept that write so native refreshes cannot erase the registered price.
+[HarmonyPatch(typeof(Text), "set_text")]
+internal static class ModShopPriceTextSetterPatch
+{
+    private static readonly HashSet<int> LoggedNativeOverwrites = new();
+
+    private static void Prefix(Text __instance, ref string value)
+    {
+        if (!string.Equals(value, "0", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        try
+        {
+            var row = __instance.GetComponentInParent<UI_ShopListUnit>();
+            if (row is null || row.costMoneyText is null ||
+                row.costMoneyText.GetInstanceID() != __instance.GetInstanceID() ||
+                !ModShopPriceDisplay.TryGetPrice(row, out var shopId, out var shopConfig, out var unitPrice) ||
+                unitPrice <= 0)
+            {
+                return;
+            }
+
+            value = unitPrice.ToString();
+            if (LoggedNativeOverwrites.Add(__instance.GetInstanceID()))
+            {
+                Plugin.Logger?.LogInfo(
+                    $"[ShopQuantity] Preserved Mod shop unit price during native text refresh: " +
+                    $"shop={shopId}, item={shopConfig.goods_item}, price={value}.");
+            }
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger?.LogWarning(
+                $"[ShopQuantity] Preserving Mod shop price during native text refresh failed: {exception.Message}");
+        }
+    }
+}
+
+// InitShopListUnit can run before the selector receives its final max/min/current
+// values. Set the initial quantity after the selector itself is initialized so
+// that the game's InitCount(…, …, 0) cannot overwrite the default afterwards.
+[HarmonyPatch(typeof(WidgetItemListSelectCount), nameof(WidgetItemListSelectCount.InitCount))]
+internal static class ShopQuantityInitCountPatch
+{
+    private static void Postfix(
+        WidgetItemListSelectCount __instance,
+        int maxSelectCount,
+        int atLeastCount,
+        int currentSelectCount)
+    {
+        UI_ShopListUnit? shopUnit;
+        try
+        {
+            shopUnit = FindShopListUnit(__instance.transform);
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger?.LogWarning(
+                $"[ShopQuantity] Could not resolve the owner of an initialized quantity selector: {exception.Message}");
+            return;
+        }
+
+        if (shopUnit is null)
+        {
+            return;
+        }
+
+        var shopId = shopUnit.shopId;
+        if (!ShopCatalog.TryGetByNativeId(shopId, out var shop) ||
+            shop.Source != ShopSource.Synthetic)
+        {
+            return;
+        }
+
+        var selector = __instance;
+        if (maxSelectCount < 1)
+        {
+            Plugin.Logger?.LogInfo(
+                $"[ShopQuantity] Selector initialized for Mod shop {shopId}: " +
+                $"min={atLeastCount}, max={maxSelectCount}, current={currentSelectCount}; no selectable stock.");
+            return;
+        }
+
+        var targetCount = currentSelectCount > 0
+            ? currentSelectCount
+            : Math.Max(atLeastCount, 1);
+        var countChanged = currentSelectCount == targetCount || selector.SetCount(targetCount);
+        var callbackRefreshed = false;
+        try
+        {
+            shopUnit.ChangeCountCallBack();
+            callbackRefreshed = true;
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger?.LogWarning(
+                $"[ShopQuantity] Native count callback failed for Mod shop {shopId}: {exception.Message}");
+        }
+
+        // The game's row icon renders the visible current/max fraction through
+        // WidgetItem separately from the selector's currentSelectCount value.
+        // Keep that display synchronized with the initialized purchase amount.
+        var widgetItem = shopUnit.widgetItem;
+        if (widgetItem is not null)
+        {
+            widgetItem.ShowFractionCount(selector.currentSelectCount, maxSelectCount);
+        }
+
+        Plugin.Logger?.LogInfo(
+            $"[ShopQuantity] Selector initialized for Mod shop {shopId}: " +
+            $"min={atLeastCount}, max={maxSelectCount}, requested={targetCount}, " +
+            $"setOrKept={countChanged}, callback={callbackRefreshed}, " +
+            $"current={selector.currentSelectCount}, " +
+            $"display={widgetItem?.numerator}/{widgetItem?.denominator}.");
+    }
+
+    private static UI_ShopListUnit? FindShopListUnit(Transform? transform)
+    {
+        var current = transform;
+        for (var depth = 0; current is not null && depth < 16; depth++)
+        {
+            var shopUnit = current.GetComponent<UI_ShopListUnit>();
+            if (shopUnit is not null)
+            {
+                return shopUnit;
+            }
+
+            current = current.parent;
+        }
+
+        return null;
+    }
+}
+
+// The game's shop row can redraw its item fraction after InitCount. Override
+// that later redraw too, keeping it bound to the purchase selector value.
+[HarmonyPatch(typeof(WidgetItem), nameof(WidgetItem.ShowFractionCount))]
+internal static class ShopQuantityFractionDisplayPatch
+{
+    private static void Prefix(WidgetItem __instance, ref int numerator, ref int denominator)
+    {
+        UI_ShopListUnit? shopUnit;
+        try
+        {
+            shopUnit = FindShopListUnit(__instance.transform);
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger?.LogWarning(
+                $"[ShopQuantity] Could not resolve the row for a fraction redraw: {exception.Message}");
+            return;
+        }
+
+        if (shopUnit is null ||
+            !ShopCatalog.TryGetByNativeId(shopUnit.shopId, out var shop) ||
+            shop.Source != ShopSource.Synthetic)
+        {
+            return;
+        }
+
+        var selector = shopUnit.widgetItemListSelectCount;
+        if (selector is null || selector.maxSelectCount < 1)
+        {
+            return;
+        }
+
+        var selectedCount = selector.currentSelectCount > 0
+            ? selector.currentSelectCount
+            : Math.Max(selector.atLeastCount, 1);
+        if (numerator != selectedCount || denominator != selector.maxSelectCount)
+        {
+            Plugin.Logger?.LogInfo(
+                $"[ShopQuantity] Replacing Mod shop fraction {numerator}/{denominator} " +
+                $"with {selectedCount}/{selector.maxSelectCount}.");
+            numerator = selectedCount;
+            denominator = selector.maxSelectCount;
+        }
+    }
+
+    private static UI_ShopListUnit? FindShopListUnit(Transform? transform)
+    {
+        var current = transform;
+        for (var depth = 0; current is not null && depth < 16; depth++)
+        {
+            var shopUnit = current.GetComponent<UI_ShopListUnit>();
+            if (shopUnit is not null)
+            {
+                return shopUnit;
+            }
+
+            current = current.parent;
+        }
+
+        return null;
+    }
+}
+
+[HarmonyPatch(typeof(UI_ShopListUnit), nameof(UI_ShopListUnit.TriggerBuyItem))]
+internal static class UiShopListUnitPurchasePatch
+{
+    private static bool Prefix(
         UI_ShopListUnit __instance,
+        int spentMoney,
         out TradeSignals.SemanticTradeState? __state)
     {
         var config = __instance.config;
@@ -274,20 +582,68 @@ internal static class UiShopListUnitSubmitBuyPatch
         var shopId = __instance.shopId != 0
             ? __instance.shopId
             : shopConfig?.shop_id ?? 0;
+        var requestedCount = __instance.widgetItemListSelectCount?.currentSelectCount ?? 0;
         ShopGoodsRuntime.Observe(config, shopId == 0 ? null : shopId, itemId);
+
+        var syntheticShop = ShopRuntime.IsSyntheticShop(shopId);
+        if (syntheticShop &&
+            ShopQuantityPurchaseContext.TryGetCurrent(
+                out _,
+                out _,
+                out var selectedItemId,
+                out _,
+                out var selectedCount,
+                out _) &&
+            selectedItemId == itemId)
+        {
+            // SubmitBuy can reset the row selector to one before calling this
+            // method. Use the quantity captured from the confirmation slider.
+            requestedCount = selectedCount;
+        }
 
         __state = TradeSignals.BeginShopTrade(
             TradeKind.ShopPurchase,
             shopId == 0 ? null : shopId,
             itemId,
-            thing?.count ?? 1,
+            requestedCount,
             TradeDirection.PlayerBuys,
-            nameof(UI_ShopListUnit.SubmitBuy),
+            nameof(UI_ShopListUnit.TriggerBuyItem),
             "ShopBuy");
+
+        if (!syntheticShop)
+        {
+            return true;
+        }
+
+        if (!ShopRuntime.TrySettleSyntheticPurchase(
+                __instance,
+                requestedCount,
+                spentMoney,
+                out var failureReason))
+        {
+            TradeSignals.EndNpcTrade(__state, succeeded: false, failureReason);
+            __state = null;
+        }
+
+        // Mod shops are settled through ModAPI.Inventory and the game's
+        // ChangeMoney method, so never let the native handler apply a second
+        // inventory/currency change.
+        return false;
     }
 
-    private static void Postfix(TradeSignals.SemanticTradeState? __state) =>
+    private static void Postfix(
+        UI_ShopListUnit __instance,
+        TradeSignals.SemanticTradeState? __state)
+    {
         TradeSignals.EndNpcTrade(__state);
+        var shopId = __instance.shopId != 0
+            ? __instance.shopId
+            : __instance.config?.shopConfig?.shop_id ?? 0;
+        if (shopId != 0)
+        {
+            ShopRuntime.LogGoodsState(shopId, "after TriggerBuyItem");
+        }
+    }
 
     private static Exception? Finalizer(
         TradeSignals.SemanticTradeState? __state,

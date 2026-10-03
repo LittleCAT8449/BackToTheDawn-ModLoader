@@ -16,6 +16,7 @@ public static class ModApi
 
     public static InventoryApi Inventory { get; } = new();
 
+    /// <summary>Read-only shop catalog access retained in the core API.</summary>
     public static ShopApi Shops { get; } = new();
 
     public static RelationshipApi Relationships { get; } = new();

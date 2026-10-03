@@ -10,6 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="..\BackToTheDawn.ModAPI\BackToTheDawn.ModAPI.csproj" />
     <ProjectReference Include="..\BackToTheDawn.PhoneAPI\BackToTheDawn.PhoneAPI.csproj" />
+    <ProjectReference Include="..\BackToTheDawn.ShopAPI\BackToTheDawn.ShopAPI.csproj" />
   </ItemGroup>
 
   <!-- References come from the BepInEx IL2CPP distribution installed beside the game. -->

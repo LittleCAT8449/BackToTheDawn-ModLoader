@@ -39,6 +39,7 @@ BepInEx/core/BepInEx.Core.dll
 BepInEx/core/BepInEx.Unity.IL2CPP.dll
 BepInEx/plugins/BackToTheDawn.Loader/BackToTheDawn.ModAPI.dll
 BepInEx/plugins/BackToTheDawn.Loader/BackToTheDawn.PhoneAPI.dll (phone features only)
+BepInEx/plugins/BackToTheDawn.Loader/BackToTheDawn.ShopAPI.dll (shop registration only)
 ```
 
 项目目标框架应为：
@@ -55,6 +56,8 @@ using BackToTheDawn.ModAPI;
 
 电话扩展单独发布在 `BackToTheDawn.PhoneAPI.dll` 中，需要电话功能的 Mod 额外引用该 DLL，并使用
 `BackToTheDawn.PhoneAPI` 命名空间。通过 `PhoneApi.For(context)` 获取当前 Mod 的 API 实例。
+
+商店注册扩展单独发布在 `BackToTheDawn.ShopAPI.dll` 中，需要注册商店、加货、改价或打开原生商店的 Mod 额外引用该 DLL，并使用 `BackToTheDawn.ShopAPI` 命名空间，通过 `ShopApi.For(context)` 获取 API。核心 ModAPI 中的 `ModApi.Shops` 仍保留只读目录查询；两个 `ShopApi` 位于不同命名空间，C# 项目同时引用二者时可用类型别名指向注册 API。
 
 ## Mod 清单与运行时上下文
 
@@ -934,6 +937,8 @@ _subscriptions.Add(GameEvents.Subscribe<ShopGoodsObservedEvent>(info =>
 当原始价格类型为空时，Loader 会依据 `ShopKey` 使用保守的默认货币：普通商店使用
 金钱，玛姬商店使用关系值，帮派商店使用帮派贡献，屋顶商店使用表现分；最终交易事件
 仍以实际 `TradeCompletedEvent` 的资源变化为准。
+
+商店注册、加货、调价与打开原生商店界面见[商店注册 API](SHOP_API.md)。
 
 `ShopId` 仍保留为原始兼容字段；`ShopKey` 是 Mod 应使用的稳定身份。
 游戏中多个配置 ID 映射到同一逻辑商店时（例如副队长商店的 1、2），它们共享

@@ -1,6 +1,6 @@
 # 商店 API 拆分与完成度
 
-> 更新时间：2026-08-18  
+> 更新时间：2026-10-03
 > 范围：商店身份、商品目录、价格货币、交易生命周期、延迟领取和失败信号。  
 > 说明：本文按当前源码和已验证日志判断；“已接入”不等于所有字段都已经在每个商店运行验证。
 
@@ -41,6 +41,10 @@ ModApi.Shops.TryGetByNativeId(nativeShopId, out var shop)
 ```
 
 稳定身份是 `ShopKey`，原始数字 ID 仅作为兼容查询字段。
+
+除了 ModAPI 中的只读目录查询，当前也通过独立的 `BackToTheDawn.ShopAPI.dll` 提供可写的
+`BackToTheDawn.ShopAPI.ShopApi.For(context)`：模组可注册现金交易的新商店、给已有商店加货或调价，并请求打开原生商店界面。接口和限制见
+[商店注册 API](SHOP_API.md)。
 
 ### 2.2 商品目录
 

@@ -1,0 +1,10 @@
+{
+  "id": "dev.backtothedawn.shoptestmod",
+  "name": "Back To The Dawn Shop Test Mod",
+  "version": "0.1.0",
+  "entryAssembly": "BackToTheDawn.ShopTestMod.dll",
+  "entryType": "BackToTheDawn.ShopTestMod.ShopTestModEntry",
+  "dependencies": [
+    "dev.backtothedawn.loader"
+  ]
+}

@@ -285,6 +285,11 @@ internal static class ShopGoodsRuntime
     {
         if (string.IsNullOrWhiteSpace(value))
         {
+            if (ShopCatalog.TryGet(shopKey, out var shop) && shop.Source == ShopSource.Synthetic)
+            {
+                return TradeCurrencyKind.Money;
+            }
+
             return shopKey.Path switch
             {
                 "maggie_shop" => TradeCurrencyKind.Relationship,

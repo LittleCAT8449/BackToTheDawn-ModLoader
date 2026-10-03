@@ -94,6 +94,7 @@ internal sealed class ModHost
             finally
             {
                 PhoneRuntime.UnregisterMod(loadedMod.Descriptor.Manifest.Id);
+                ShopRuntime.UnregisterMod(loadedMod.Descriptor.Manifest.Id);
                 loadedMod.Context.Resources.UnloadAllBundles();
             }
         }
@@ -181,6 +182,7 @@ internal sealed class ModHost
             }
 
             PhoneRuntime.UnregisterMod(descriptor.Manifest.Id);
+            ShopRuntime.UnregisterMod(descriptor.Manifest.Id);
             context?.Resources.UnloadAllBundles();
 
             Fail(descriptor, Unwrap(exception).Message);

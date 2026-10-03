@@ -24,6 +24,7 @@ $exampleManifestPath = Join-Path $rootDirectory "examples\BackToTheDawn.ExampleM
 $loaderOutputDll = Join-Path $rootDirectory "src\BackToTheDawn.Loader\bin\$Configuration\net6.0\BackToTheDawn.Loader.dll"
 $apiOutputDll = Join-Path $rootDirectory "src\BackToTheDawn.ModAPI\bin\$Configuration\net6.0\BackToTheDawn.ModAPI.dll"
 $phoneApiOutputDll = Join-Path $rootDirectory "src\BackToTheDawn.PhoneAPI\bin\$Configuration\net6.0\BackToTheDawn.PhoneAPI.dll"
+$shopApiOutputDll = Join-Path $rootDirectory "src\BackToTheDawn.ShopAPI\bin\$Configuration\net6.0\BackToTheDawn.ShopAPI.dll"
 $exampleOutputDll = Join-Path $rootDirectory "examples\BackToTheDawn.ExampleMod\bin\$Configuration\net6.0\BackToTheDawn.ExampleMod.dll"
 $lifecycleTestRoot = Join-Path $rootDirectory "tests"
 $dependencyTestProject = Join-Path $lifecycleTestRoot "BackToTheDawn.DependencyMod\BackToTheDawn.DependencyMod.csproj"
@@ -79,8 +80,8 @@ if ($IncludeAssetBundleProbe) {
 }
 
 New-Item -ItemType Directory -Path $loaderPluginDirectory -Force | Out-Null
-Copy-Item -LiteralPath $loaderOutputDll,$apiOutputDll,$phoneApiOutputDll -Destination $loaderPluginDirectory -Force
-Write-Host "Deployed Loader, ModAPI, and PhoneAPI to $loaderPluginDirectory"
+Copy-Item -LiteralPath $loaderOutputDll,$apiOutputDll,$phoneApiOutputDll,$shopApiOutputDll -Destination $loaderPluginDirectory -Force
+Write-Host "Deployed Loader, ModAPI, PhoneAPI, and ShopAPI to $loaderPluginDirectory"
 
 if (-not $SkipExampleMod) {
     New-Item -ItemType Directory -Path $exampleModDirectory -Force | Out-Null

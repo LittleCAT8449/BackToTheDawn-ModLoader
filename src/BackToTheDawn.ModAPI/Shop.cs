@@ -97,6 +97,11 @@ public static class ShopCatalog
         new(StringComparer.OrdinalIgnoreCase);
     private static Dictionary<int, ShopDescriptor> _descriptorsByNativeId = new();
     private static IReadOnlyList<ShopDescriptor> _all = Array.Empty<ShopDescriptor>();
+    private static Dictionary<string, ShopDescriptor> _baseDescriptors =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static Dictionary<int, ShopDescriptor> _baseDescriptorsByNativeId = new();
+    private static readonly Dictionary<string, (string OwnerId, ShopDescriptor Descriptor)> RuntimeShops =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public static bool IsAvailable { get; private set; }
 
@@ -168,11 +173,64 @@ public static class ShopCatalog
 
         lock (SyncRoot)
         {
-            _descriptors = byKey;
-            _descriptorsByNativeId = byNativeId;
-            _all = byKey.Values.OrderBy(value => value.Key.ToString()).ToArray();
+            _baseDescriptors = byKey;
+            _baseDescriptorsByNativeId = byNativeId;
             IsAvailable = true;
+            RebuildRuntimeCatalog();
         }
+    }
+
+    internal static bool RegisterRuntime(string ownerId, ShopDescriptor descriptor)
+    {
+        var key = descriptor.Key.ToString();
+        lock (SyncRoot)
+        {
+            if (_descriptors.ContainsKey(key) || RuntimeShops.ContainsKey(key)) return false;
+            foreach (var nativeId in descriptor.NativeShopIds)
+                if (_descriptorsByNativeId.ContainsKey(nativeId)) return false;
+            RuntimeShops.Add(key, (ownerId, descriptor));
+            RebuildRuntimeCatalog();
+            return true;
+        }
+    }
+
+    internal static void UnregisterRuntimeOwner(string ownerId)
+    {
+        lock (SyncRoot)
+        {
+            foreach (var key in RuntimeShops.Where(entry =>
+                         entry.Value.OwnerId.Equals(ownerId, StringComparison.OrdinalIgnoreCase))
+                         .Select(entry => entry.Key).ToArray())
+                RuntimeShops.Remove(key);
+            RebuildRuntimeCatalog();
+        }
+    }
+
+    internal static void UnregisterRuntime(string ownerId, ShopKey key)
+    {
+        lock (SyncRoot)
+        {
+            if (RuntimeShops.TryGetValue(key.ToString(), out var shop) &&
+                shop.OwnerId.Equals(ownerId, StringComparison.OrdinalIgnoreCase))
+            {
+                RuntimeShops.Remove(key.ToString());
+                RebuildRuntimeCatalog();
+            }
+        }
+    }
+
+    private static void RebuildRuntimeCatalog()
+    {
+        var byKey = new Dictionary<string, ShopDescriptor>(_baseDescriptors, StringComparer.OrdinalIgnoreCase);
+        var byNativeId = new Dictionary<int, ShopDescriptor>(_baseDescriptorsByNativeId);
+        foreach (var (key, (_, descriptor)) in RuntimeShops)
+        {
+            byKey[key] = descriptor;
+            foreach (var nativeId in descriptor.NativeShopIds) byNativeId[nativeId] = descriptor;
+        }
+        _descriptors = byKey;
+        _descriptorsByNativeId = byNativeId;
+        _all = byKey.Values.OrderBy(value => value.Key.ToString()).ToArray();
     }
 
     internal static void Reset()
@@ -182,6 +240,9 @@ public static class ShopCatalog
             _descriptors = new Dictionary<string, ShopDescriptor>(StringComparer.OrdinalIgnoreCase);
             _descriptorsByNativeId = new Dictionary<int, ShopDescriptor>();
             _all = Array.Empty<ShopDescriptor>();
+            _baseDescriptors = new Dictionary<string, ShopDescriptor>(StringComparer.OrdinalIgnoreCase);
+            _baseDescriptorsByNativeId = new Dictionary<int, ShopDescriptor>();
+            RuntimeShops.Clear();
             IsAvailable = false;
         }
     }

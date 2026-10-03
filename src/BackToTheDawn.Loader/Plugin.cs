@@ -124,6 +124,7 @@ public sealed class Plugin : BasePlugin
         }
 
         PhoneRuntimeProviders.Install();
+        ShopRuntime.InstallProviders();
         if (!_enableLifecycleHooks.Value)
         {
             // PatchAll(assembly) above includes the phone patch classes too.
@@ -230,6 +231,7 @@ public sealed class Plugin : BasePlugin
         ModRegistry.Clear();
         GameEvents.ClearSubscribers();
         PhoneRuntimeProviders.Clear();
+        ShopRuntime.ClearProviders();
         GameContextAdapter.Reset();
         RoomCloneRuntime.Reset();
         RoomApi.CloneProvider = null;
@@ -240,6 +242,7 @@ public sealed class Plugin : BasePlugin
         RoomApi.UnregisterProvider = null;
         RoomApi.UnregisterAllProvider = null;
         TradeSignals.Reset();
+        ShopRuntime.Reset();
         RuntimeItemCatalog.Reset();
         ShopGoodsCatalog.Reset();
         RuntimeItemInjection.Reset();
@@ -291,7 +294,11 @@ internal sealed class ShopGoodsScanRunner : MonoBehaviour
     {
     }
 
-    private void Update() => ShopGoodsRuntime.TickFullScan();
+    private void Update()
+    {
+        ShopGoodsRuntime.TickFullScan();
+        ShopRuntime.Tick();
+    }
 }
 
 public sealed class RuntimeObjectProbe : MonoBehaviour

@@ -35,7 +35,7 @@ if (-not $SkipBuild) {
     }
 }
 
-$dllNames = @("BackToTheDawn.Loader", "BackToTheDawn.ModAPI", "BackToTheDawn.PhoneAPI")
+$dllNames = @("BackToTheDawn.Loader", "BackToTheDawn.ModAPI", "BackToTheDawn.PhoneAPI", "BackToTheDawn.ShopAPI")
 $sourceFiles = @{}
 foreach ($name in $dllNames) {
     $source = Join-Path $rootDirectory "src\$name\bin\$Configuration\net6.0\$name.dll"
@@ -58,9 +58,9 @@ foreach ($name in $dllNames) {
 }
 $installationText = [IO.File]::ReadAllText((Join-Path $rootDirectory "docs\DISTRIBUTION.md"))
 # INSTALL.md is at the package root; its API documents are inside docs/.
-$installationText = $installationText -replace '\]\((PHONE_API|PHONE_JSON|TECHNICAL)\.md\)', '](docs/$1.md)'
+$installationText = $installationText -replace '\]\((PHONE_API|PHONE_JSON|SHOP_API|TECHNICAL)\.md\)', '](docs/$1.md)'
 [IO.File]::WriteAllText((Join-Path $stageDirectory "INSTALL.md"), $installationText, [Text.UTF8Encoding]::new($false))
-Copy-Item -LiteralPath (Join-Path $rootDirectory "docs\PHONE_API.md"),(Join-Path $rootDirectory "docs\PHONE_JSON.md"),(Join-Path $rootDirectory "docs\TECHNICAL.md") -Destination $docDirectory
+Copy-Item -LiteralPath (Join-Path $rootDirectory "docs\PHONE_API.md"),(Join-Path $rootDirectory "docs\PHONE_JSON.md"),(Join-Path $rootDirectory "docs\SHOP_API.md"),(Join-Path $rootDirectory "docs\SHOP_API_STATUS.md"),(Join-Path $rootDirectory "docs\TECHNICAL.md") -Destination $docDirectory
 $jsonExampleDirectory = Join-Path $stageDirectory "examples\BackToTheDawn.JsonPhoneMod"
 $jsonExampleDialogueDirectory = Join-Path $jsonExampleDirectory "dialogues\shop"
 New-Item -ItemType Directory -Path $jsonExampleDialogueDirectory -Force | Out-Null
