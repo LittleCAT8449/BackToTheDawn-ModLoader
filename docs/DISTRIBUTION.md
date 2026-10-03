@@ -55,7 +55,7 @@
 Back To The Dawn Mod Loader v0.1.0 loaded successfully.
 ```
 
-版本号会随前置版本变化。前置负责加载模组，安装前置本身不会自动添加电话对话。
+版本号会随前置版本变化。
 
 ## 5. 安装模组
 
