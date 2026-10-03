@@ -1,0 +1,10 @@
+{
+  "id": "dev.backtothedawn.roommonitor",
+  "name": "Back To The Dawn Room Monitor",
+  "version": "0.1.0",
+  "entryAssembly": "BackToTheDawn.RoomMonitor.dll",
+  "entryType": "BackToTheDawn.RoomMonitor.RoomMonitorEntry",
+  "dependencies": [
+    "dev.backtothedawn.loader"
+  ]
+}

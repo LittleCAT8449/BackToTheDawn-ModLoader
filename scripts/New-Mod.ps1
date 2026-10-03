@@ -45,6 +45,9 @@ $projectTemplate = @'
     <ProjectReference Include="..\..\src\BackToTheDawn.ModAPI\BackToTheDawn.ModAPI.csproj">
       <Private>false</Private>
     </ProjectReference>
+    <ProjectReference Include="..\..\src\BackToTheDawn.PhoneAPI\BackToTheDawn.PhoneAPI.csproj">
+      <Private>false</Private>
+    </ProjectReference>
   </ItemGroup>
 
   <ItemGroup>
@@ -59,6 +62,7 @@ $projectTemplate = $projectTemplate.Replace("__VERSION__", $Version)
 
 $entryTemplate = @'
 using BackToTheDawn.ModAPI;
+using BackToTheDawn.PhoneAPI;
 
 namespace __NAMESPACE__;
 

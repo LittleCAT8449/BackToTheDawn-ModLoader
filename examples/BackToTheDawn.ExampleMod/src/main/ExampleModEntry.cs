@@ -1,4 +1,5 @@
 using BackToTheDawn.ModAPI;
+using BackToTheDawn.PhoneAPI;
 
 namespace BackToTheDawn.ExampleMod;
 
@@ -11,6 +12,7 @@ public sealed class ExampleModEntry : IMod
     private bool _cancelDebugTokenUse;
     private bool _unregistrationApiTested;
 
+
     public void Initialize(ModContext context)
     {
         _context = context;
@@ -19,6 +21,8 @@ public sealed class ExampleModEntry : IMod
         context.Config.Set("configApiVersion", 1);
         context.Config.Set("cancelDebugTokenUse", _cancelDebugTokenUse);
         context.Config.Save();
+
+        RegisterExamplePhone(context);
 
         _debugItem = new DebugTokenItem(context.Manifest.Id);
         var registration = ModApi.Items.Register(_debugItem);
@@ -45,7 +49,7 @@ public sealed class ExampleModEntry : IMod
         _subscriptions.Add(GameEvents.Subscribe<ItemCatalogReadyEvent>(OnItemCatalogReady));
         _subscriptions.Add(GameEvents.Subscribe<ItemRuntimeReadyEvent>(OnItemRuntimeReady));
         _subscriptions.Add(GameEvents.Subscribe<TimeChangedEvent>(OnTimeChanged));
-        _subscriptions.Add(GameEvents.Subscribe<MapChangedEvent>(OnMapChanged));
+        _subscriptions.Add(ModApi.Rooms.Subscribe(OnRoomChanged));
         _subscriptions.Add(GameEvents.Subscribe<PlayerItemUsedEvent>(OnPlayerItemUsed));
         _subscriptions.Add(GameEvents.Subscribe<PlayerItemActionEvent>(OnPlayerItemAction));
         _subscriptions.Add(ModApi.Events.Subscribe<InventoryChangedEvent>(OnInventoryChanged));
@@ -55,6 +59,10 @@ public sealed class ExampleModEntry : IMod
         _subscriptions.Add(ModApi.Events.Subscribe<TradeCompletedEvent>(OnTradeCompleted));
         _subscriptions.Add(ModApi.Events.Subscribe<TradeFailedEvent>(OnTradeFailed));
         _subscriptions.Add(ModApi.Events.Subscribe<BetSettledEvent>(OnBetSettled));
+        _subscriptions.Add(
+            ModApi.Events.Subscribe<LotteryPrizeCashedEvent>(OnLotteryPrizeCashed));
+        _subscriptions.Add(
+            ModApi.Events.Subscribe<ShopGoodsObservedEvent>(OnShopGoodsObserved));
         _subscriptions.Add(ModApi.Events.Subscribe<ItemUseBeforeEvent>(OnItemUseBefore));
         _subscriptions.Add(ModApi.Events.Subscribe<ItemUseAfterEvent>(OnItemUseAfter));
         if (_logGameplayState)
@@ -90,6 +98,9 @@ public sealed class ExampleModEntry : IMod
         _logGameplayState = false;
         _cancelDebugTokenUse = false;
         _unregistrationApiTested = false;
+
+
+
         _debugItem = null;
         _context?.Logger.Info("Example Mod IMod entry shut down.");
         _context = null;
@@ -97,6 +108,67 @@ public sealed class ExampleModEntry : IMod
 
     private void OnStartupStepChanged(StartupStepChangedEvent info) =>
         Info($"Startup step changed to {info.Step}.");
+
+    private static void RegisterExamplePhone(ModContext context)
+    {
+        const string conversationKey = "repair-shop";
+        var phones = PhoneApi.For(context);
+        var conversation = phones.RegisterConversation(
+            conversationKey,
+            new[]
+            {
+                new PhoneDialogueLine(
+                    "街角修理店",
+                    "喂，这里是街角修理店。你需要什么服务？",
+                    PhoneDialogueSpeakerType.Caller)
+                {
+                    Id = "menu",
+                    Options = new[]
+                    {
+                        new PhoneDialogueOption("repair", "修理收音机", "repair-question"),
+                        new PhoneDialogueOption("hours", "询问营业时间", "hours-question"),
+                        new PhoneDialogueOption("hang-up", "挂断", EndCall: true),
+                    },
+                },
+                new PhoneDialogueLine(
+                    "你",
+                    "请问能修理收音机吗？",
+                    PhoneDialogueSpeakerType.Player) { Id = "repair-question" },
+                new PhoneDialogueLine(
+                    "街角修理店",
+                    "可以，带来后我会检查零件和费用。",
+                    PhoneDialogueSpeakerType.Caller) { EndCall = true },
+                new PhoneDialogueLine(
+                    "你",
+                    "请问今天几点关门？",
+                    PhoneDialogueSpeakerType.Player) { Id = "hours-question" },
+                new PhoneDialogueLine(
+                    "街角修理店",
+                    "今天晚上六点关门，记得早点过来。",
+                    PhoneDialogueSpeakerType.Caller) { EndCall = true },
+            },
+            interactionIconPath: "debug_token.png");
+
+        if (!conversation.Succeeded)
+        {
+            context.Logger.Warning(
+                $"Could not register ExampleMod phone conversation: {conversation.Message}");
+            return;
+        }
+
+        const string phoneNumber = "48327";
+        var number = phones.RegisterNumber(phoneNumber, "街角修理店", conversationKey);
+        if (number.Succeeded)
+        {
+            context.Logger.Info(
+                $"Registered ExampleMod phone number {phoneNumber} (街角修理店).");
+        }
+        else
+        {
+            context.Logger.Warning(
+                $"Could not register ExampleMod phone number {phoneNumber}: {number.Message}");
+        }
+    }
 
     private void OnMainMenuEntered(MainMenuEnteredEvent info) =>
         Info(
@@ -198,10 +270,10 @@ public sealed class ExampleModEntry : IMod
             $"day {info.Previous.Day} {info.Previous.Hour:D2}:{info.Previous.Minute:D2} -> " +
             $"day {info.Current.Day} {info.Current.Hour:D2}:{info.Current.Minute:D2}.");
 
-    private void OnMapChanged(MapChangedEvent info) =>
+    private void OnRoomChanged(RoomChangedEvent info) =>
         Info(
-            $"Map changed: {info.PreviousMapId} -> " +
-            $"{info.CurrentMapId} ('{info.CurrentMapName}').");
+            $"Room changed: {info.Previous?.Id} ('{info.Previous?.Name}') -> " +
+            $"{info.Current.Id} ('{info.Current.Name}')." );
 
     private void OnPlayerStateChanged(PlayerStateChangedEvent info) =>
         Info(
@@ -284,6 +356,30 @@ public sealed class ExampleModEntry : IMod
             $"Bet settled: result={info.Result}, ticket={info.TicketKey}, " +
             $"stake={info.Stake}, payout={info.Payout}, bet={FormatBet(info.Bet)}, " +
             $"tx={info.TransactionId}, source={info.Source}, reason={info.Reason}.");
+
+    private void OnLotteryPrizeCashed(LotteryPrizeCashedEvent info)
+    {
+        Info(
+            $"Lottery prize cashed: ticket={info.TicketKey}, " +
+            $"ticketDelta={info.TicketDelta}, tx={info.TransactionId}, " +
+            $"number={info.LotteryNumber ?? "<none>"}.");
+        foreach (var reward in info.Rewards)
+        {
+            Info(
+                $"Lottery reward: kind={reward.Kind}, " +
+                $"item={reward.ItemKey?.ToString() ?? "<money>"}, delta={reward.Delta}.");
+        }
+    }
+
+    private void OnShopGoodsObserved(ShopGoodsObservedEvent info)
+    {
+        var goods = info.Goods;
+        Info(
+            $"Shop goods observed: shop={goods.ShopKey}, item={goods.ItemKey}, " +
+            $"price={goods.Price?.ToString() ?? "<unknown>"}, " +
+            $"currency={goods.PriceCurrency}, stock={goods.Stock?.ToString() ?? "<unknown>"}, " +
+            $"group={goods.Group ?? "<none>"}.");
+    }
 
     private void OnItemUseBefore(ItemUseBeforeEvent info)
     {

@@ -31,6 +31,7 @@ internal static class TradeSignals
     private static BettingTicketOperationState? _pendingBetTicketOperation;
     private static PendingMatchBet? _activeMatchBet;
     private static PendingMatchBet? _pendingMatchBetRemoval;
+    private static PendingLotteryPrize? _pendingLotteryPrize;
 
     internal static void PublishItem(
         int characterId,
@@ -39,6 +40,11 @@ internal static class TradeSignals
         string source,
         string reason)
     {
+        if (!reason.Equals("PrizeCashed", StringComparison.OrdinalIgnoreCase))
+        {
+            FlushPendingLotteryPrize();
+        }
+
         if (IsSemanticTradeActive)
         {
             ObserveSemanticReason(reason);
@@ -54,6 +60,26 @@ internal static class TradeSignals
                 delta > 0)
             {
                 SettleBoxingBetWon(characterId, delta, source, reason);
+            }
+
+            if (reason.Equals("PrizeCashed", StringComparison.OrdinalIgnoreCase))
+            {
+                ObserveLotteryMoney(characterId, delta, source, reason);
+                Publish(
+                    TradeKind.Lottery,
+                    TradeLegKind.Currency,
+                    characterId,
+                    null,
+                    0,
+                    TradeCurrencyKind.Money,
+                    delta,
+                    source,
+                    reason,
+                    direction: delta < 0
+                        ? TradeDirection.PlayerGives
+                        : TradeDirection.PlayerReceives,
+                    shopId: 14,
+                    shopKey: new ShopKey("backtothedawn", "lottery"));
             }
 
             if (reason.Contains("MatchBet", StringComparison.OrdinalIgnoreCase))
@@ -89,24 +115,9 @@ internal static class TradeSignals
             return;
         }
 
-        if (reason.Equals("ReceiveGirlFriendPackage", StringComparison.OrdinalIgnoreCase))
+        if (reason.Equals("PrizeCashed", StringComparison.OrdinalIgnoreCase))
         {
-            Publish(
-                TradeKind.GirlfriendShopPurchase,
-                TradeLegKind.Combined,
-                characterId,
-                itemKey,
-                delta,
-                TradeCurrencyKind.None,
-                0,
-                source,
-                reason,
-                direction: TradeDirection.PlayerReceives,
-                shopId: 6,
-                shopKey: new ShopKey("backtothedawn", "maggie_shop"),
-                phase: TradePhase.Delivered,
-                requestedCount: Math.Abs(delta));
-            return;
+            ObserveLotteryItem(characterId, itemKey, delta, source, reason);
         }
 
         if (!TryGetKind(reason, delta, out var kind))
@@ -132,6 +143,11 @@ internal static class TradeSignals
         string source,
         string reason)
     {
+        if (!reason.Equals("PrizeCashed", StringComparison.OrdinalIgnoreCase))
+        {
+            FlushPendingLotteryPrize();
+        }
+
         if (TryCompleteDeferredTrade(characterId, delta))
         {
             return;
@@ -170,6 +186,11 @@ internal static class TradeSignals
                 shopId: 8,
                 shopKey: new ShopKey("backtothedawn", "lunch_counter"));
             return;
+        }
+
+        if (reason.Equals("PrizeCashed", StringComparison.OrdinalIgnoreCase))
+        {
+            ObserveLotteryMoney(characterId, delta, source, reason);
         }
 
         if (!TryGetKind(reason, delta, out var kind))
@@ -290,6 +311,11 @@ internal static class TradeSignals
         var itemKey = itemId > 0
             ? ItemCatalog.ResolveOrCreateKey(itemId)
             : (ItemKey?)null;
+        if (shopKey is null && shopId.HasValue &&
+            ShopCatalog.TryGetByNativeId(shopId.Value, out var descriptor))
+        {
+            shopKey = descriptor.Key;
+        }
         var state = new SemanticTradeState(
             Interlocked.Increment(ref _nextTransactionId),
             kind,
@@ -366,15 +392,8 @@ internal static class TradeSignals
                 return;
             }
 
-            var kind = state.Kind;
-            // The game reuses BuyViceCaptainShopGoods for the vending machine.
-            // Shop ID 9 is stable in the game's shop configuration/resources,
-            // therefore it must override the ambiguous ThingChangeReason.
-            if (state.ShopId == 9)
-            {
-                kind = TradeKind.VendingMachinePurchase;
-            }
-            else if (kind == TradeKind.Unknown &&
+            var kind = ResolveShopTradeKind(state.ShopId, state.Kind);
+            if (kind == TradeKind.Unknown &&
                 TryGetKind(
                     state.ObservedReason,
                     itemDelta != 0 ? itemDelta : moneyDelta != 0 ? moneyDelta : disciplineDelta,
@@ -385,7 +404,7 @@ internal static class TradeSignals
 
             if (kind == TradeKind.Unknown)
             {
-                kind = TradeKind.GenericPurchase;
+                kind = TradeKind.ShopPurchase;
             }
 
             Publish(
@@ -771,9 +790,35 @@ internal static class TradeSignals
                     ? TradeCurrencyKind.Relationship
                     : chipsDelta != 0
                         ? TradeCurrencyKind.Chips
-                        : gangContributionDelta != 0
-                            ? TradeCurrencyKind.GangContribution
-                            : TradeCurrencyKind.None;
+                            : gangContributionDelta != 0
+                                ? TradeCurrencyKind.GangContribution
+                                : TradeCurrencyKind.None;
+
+    private static TradeKind ResolveShopTradeKind(int? shopId, TradeKind requested)
+    {
+        if (!shopId.HasValue ||
+            !ShopCatalog.TryGetByNativeId(shopId.Value, out var descriptor))
+        {
+            return requested;
+        }
+
+        return descriptor.Key.Path switch
+        {
+            "vending_machine" => TradeKind.VendingMachinePurchase,
+            "lunch_counter" => TradeKind.LunchPurchase,
+            "vice_captain_shop" => TradeKind.ViceCaptainPurchase,
+            "church_goods" => TradeKind.PriestShopPurchase,
+            "maggie_shop" => TradeKind.GirlfriendShopPurchase,
+            "roof_benefit" or "excess_benefit" => TradeKind.RoofExchange,
+            "tv_shopping" => TradeKind.TvShopping,
+            "lottery" => TradeKind.Lottery,
+            "bigfoot_shop" or "fang_shop" or "blackclaw_shop" =>
+                TradeKind.GangShopPurchase,
+            _ when requested == TradeKind.Unknown ||
+                   requested == TradeKind.GenericPurchase => TradeKind.ShopPurchase,
+            _ => requested,
+        };
+    }
 
     private static void CaptureCurrencyBaselines(SemanticTradeState state)
     {
@@ -1240,6 +1285,83 @@ internal static class TradeSignals
         _pendingBetTicketOperation = null;
         _activeMatchBet = null;
         _pendingMatchBetRemoval = null;
+        _pendingLotteryPrize = null;
+    }
+
+    internal static void FlushPendingLotteryPrize()
+    {
+        var pending = _pendingLotteryPrize;
+        if (pending is null)
+        {
+            return;
+        }
+
+        _pendingLotteryPrize = null;
+        GameEvents.RaiseLotteryPrizeCashed(
+            new LotteryPrizeCashedEvent(
+                pending.CharacterId,
+                pending.TicketKey,
+                pending.TicketDelta,
+                pending.Rewards.ToArray(),
+                Interlocked.Increment(ref _nextTransactionId),
+                pending.Source,
+                pending.Reason,
+                pending.LotteryNumber));
+    }
+
+    private static void ObserveLotteryItem(
+        int characterId,
+        ItemKey itemKey,
+        int delta,
+        string source,
+        string reason)
+    {
+        if (itemKey.Path.Equals("lottery_ticket", StringComparison.OrdinalIgnoreCase) &&
+            delta < 0)
+        {
+            FlushPendingLotteryPrize();
+            _pendingLotteryPrize = new PendingLotteryPrize(
+                characterId,
+                itemKey,
+                delta,
+                source,
+                reason);
+            _pendingLotteryPrize.Rewards.Add(
+                new LotteryReward(LotteryRewardKind.TicketConsumed, itemKey, delta));
+            return;
+        }
+
+        if (_pendingLotteryPrize is null ||
+            _pendingLotteryPrize.CharacterId != characterId)
+        {
+            return;
+        }
+
+        var kind = itemKey.Path.Equals("mentality", StringComparison.OrdinalIgnoreCase)
+            ? LotteryRewardKind.Mentality
+            : LotteryRewardKind.Item;
+        _pendingLotteryPrize.Rewards.Add(new LotteryReward(kind, itemKey, delta));
+    }
+
+    private static void ObserveLotteryMoney(
+        int characterId,
+        int delta,
+        string source,
+        string reason)
+    {
+        if (_pendingLotteryPrize is null ||
+            _pendingLotteryPrize.CharacterId != characterId)
+        {
+            _pendingLotteryPrize = new PendingLotteryPrize(
+                characterId,
+                new ItemKey("backtothedawn", "lottery_ticket"),
+                0,
+                source,
+                reason);
+        }
+
+        _pendingLotteryPrize.Rewards.Add(
+            new LotteryReward(LotteryRewardKind.Money, null, delta));
     }
 
     internal sealed class SemanticTradeState
@@ -1307,6 +1429,31 @@ internal static class TradeSignals
         string Reason,
         DateTime Timestamp);
 
+    private sealed class PendingLotteryPrize
+    {
+        internal PendingLotteryPrize(
+            int characterId,
+            ItemKey ticketKey,
+            int ticketDelta,
+            string source,
+            string reason)
+        {
+            CharacterId = characterId;
+            TicketKey = ticketKey;
+            TicketDelta = ticketDelta;
+            Source = source;
+            Reason = reason;
+        }
+
+        internal int CharacterId { get; }
+        internal ItemKey TicketKey { get; }
+        internal int TicketDelta { get; }
+        internal List<LotteryReward> Rewards { get; } = new();
+        internal string Source { get; }
+        internal string Reason { get; }
+        internal string? LotteryNumber { get; }
+    }
+
     private sealed class ActiveBoxingBet
     {
         internal ActiveBoxingBet(
@@ -1341,4 +1488,5 @@ internal static class TradeSignals
     private sealed record DeferredSemanticTrade(
         SemanticTradeState State,
         DateTime Timestamp);
+
 }

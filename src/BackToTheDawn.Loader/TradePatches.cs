@@ -274,9 +274,10 @@ internal static class UiShopListUnitSubmitBuyPatch
         var shopId = __instance.shopId != 0
             ? __instance.shopId
             : shopConfig?.shop_id ?? 0;
+        ShopGoodsRuntime.Observe(config, shopId == 0 ? null : shopId, itemId);
 
         __state = TradeSignals.BeginShopTrade(
-            TradeKind.Unknown,
+            TradeKind.ShopPurchase,
             shopId == 0 ? null : shopId,
             itemId,
             thing?.count ?? 1,
@@ -313,6 +314,7 @@ internal static class UiShopListUnitRoofSubmitBuyPatch
         var thing = __instance.GetThing();
         var itemId = shopConfig?.goods_item ?? thing?.id ?? 0;
         var shopId = shopConfig?.shop_id ?? 0;
+        ShopGoodsRuntime.Observe(config, shopId == 0 ? null : shopId, itemId);
 
         __state = TradeSignals.BeginShopTrade(
             TradeKind.RoofExchange,
@@ -375,6 +377,12 @@ internal static class UiMailItemListUnitSubmitPatch
             }
         }
 
+        ShopGoodsRuntime.Observe(
+            config,
+            6,
+            itemId,
+            new ShopKey("backtothedawn", "maggie_shop"));
+
         __state = TradeSignals.BeginShopTrade(
             TradeKind.GirlfriendShopPurchase,
             6,
@@ -432,6 +440,12 @@ internal static class UiMailItemSubmitMailItemPatch
             // Keep the semantic key even if an optional UI field is absent.
         }
 
+        ShopGoodsRuntime.Observe(
+            config,
+            shopId == 0 ? 6 : shopId,
+            itemId,
+            new ShopKey("backtothedawn", "maggie_shop"));
+
         __state = TradeSignals.BeginShopTrade(
             TradeKind.GirlfriendShopPurchase,
             shopId == 0 ? 6 : shopId,
@@ -443,43 +457,6 @@ internal static class UiMailItemSubmitMailItemPatch
             new ShopKey("backtothedawn", "maggie_shop"),
             TradePhase.OrderPlaced);
         TradeSignals.ObserveSemanticRelationshipCost(costValue);
-    }
-
-    private static void Postfix(TradeSignals.SemanticTradeState? __state) =>
-        TradeSignals.EndNpcTrade(__state);
-
-    private static Exception? Finalizer(
-        TradeSignals.SemanticTradeState? __state,
-        Exception? __exception)
-    {
-        if (__exception is not null)
-        {
-            TradeSignals.EndNpcTrade(__state, succeeded: false);
-        }
-
-        return __exception;
-    }
-}
-
-[HarmonyPatch(
-    typeof(StorageGirlFriendShopBuyHistory),
-    nameof(StorageGirlFriendShopBuyHistory.ReceiveGirlFriendPackage))]
-internal static class StorageGirlFriendReceivePackagePatch
-{
-    private static void Prefix(
-        GirlFriendShopBuyHistory one,
-        out TradeSignals.SemanticTradeState? __state)
-    {
-        __state = TradeSignals.BeginShopTrade(
-            TradeKind.GirlfriendShopPurchase,
-            6,
-            one?.itemId ?? 0,
-            one?.count ?? 0,
-            TradeDirection.PlayerReceives,
-            nameof(StorageGirlFriendShopBuyHistory.ReceiveGirlFriendPackage),
-            "ReceiveGirlFriendPackage",
-            new ShopKey("backtothedawn", "maggie_shop"),
-            TradePhase.Delivered);
     }
 
     private static void Postfix(TradeSignals.SemanticTradeState? __state) =>
@@ -523,6 +500,11 @@ internal static class UiGangShopListUnitSubmitBuyPatch
         }
 
         var key = ShopCatalogBootstrap.ResolveGangShopKey(nativeShopId, __instance.gangId);
+        ShopGoodsRuntime.Observe(
+            config,
+            nativeShopId == 0 ? null : nativeShopId,
+            itemId,
+            key);
         __state = TradeSignals.BeginShopTrade(
             TradeKind.GangShopPurchase,
             nativeShopId == 0 ? null : nativeShopId,
@@ -590,48 +572,6 @@ internal static class UiGangShopSubmitItemPatch
             "BuyGangShopGoods",
             key,
             TradePhase.OrderPlaced);
-    }
-
-    private static void Postfix(TradeSignals.SemanticTradeState? __state) =>
-        TradeSignals.EndNpcTrade(__state);
-
-    private static Exception? Finalizer(
-        TradeSignals.SemanticTradeState? __state,
-        Exception? __exception)
-    {
-        if (__exception is not null)
-        {
-            TradeSignals.EndNpcTrade(__state, succeeded: false);
-        }
-
-        return __exception;
-    }
-}
-
-[HarmonyPatch(
-    typeof(StorageGangShopApply),
-    nameof(StorageGangShopApply.ReceiveGangShopItem))]
-internal static class StorageGangReceiveItemPatch
-{
-    private static void Prefix(
-        StorageGangShopApply __instance,
-        GangShopApplyItem one,
-        out TradeSignals.SemanticTradeState? __state)
-    {
-        var itemId = one?.itemId ?? 0;
-        var count = one?.itemCount ?? 0;
-        var gangId = one?.gangId ?? 0;
-        var key = ShopCatalogBootstrap.ResolveGangShopKey(0, gangId);
-        __state = TradeSignals.BeginShopTrade(
-            TradeKind.GangShopPurchase,
-            null,
-            itemId,
-            count,
-            TradeDirection.PlayerReceives,
-            nameof(StorageGangShopApply.ReceiveGangShopItem),
-            "ReceiveGangShopGoods",
-            key,
-            TradePhase.Delivered);
     }
 
     private static void Postfix(TradeSignals.SemanticTradeState? __state) =>

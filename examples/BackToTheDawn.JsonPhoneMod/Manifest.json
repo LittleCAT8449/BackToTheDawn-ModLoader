@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "namespace": "dev.backtothedawn.jsonphoneexample",
+  "name": "JSON 电话示例",
+  "version": "1.0.0",
+  "isPhoneMod": true,
+  "dependencies": ["dev.backtothedawn.loader"]
+}

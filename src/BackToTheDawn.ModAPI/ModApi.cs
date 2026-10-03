@@ -19,6 +19,17 @@ public static class ModApi
     public static ShopApi Shops { get; } = new();
 
     public static RelationshipApi Relationships { get; } = new();
+
+    /// <summary>Room focus and room transition API.</summary>
+    public static RoomApi Rooms { get; } = new();
+
+    public static GuiApi Gui { get; } = new();
+
+    /// <summary>Modern retained-mode UI facade.</summary>
+    public static CanvasApi UI { get; } = new();
+
+    /// <summary>Backward-compatible alias for <see cref="UI"/>.</summary>
+    public static CanvasApi Canvas => UI;
 }
 
 /// <summary>
@@ -143,4 +154,17 @@ public sealed class ShopApi
 
     public bool TryGetByNativeId(int nativeShopId, out ShopDescriptor descriptor) =>
         ShopCatalog.TryGetByNativeId(nativeShopId, out descriptor);
+
+    public bool IsGoodsAvailable => ShopGoodsCatalog.IsAvailable;
+
+    public IReadOnlyList<ShopGoodsDefinition> Goods => ShopGoodsCatalog.All;
+
+    public IReadOnlyList<ShopGoodsDefinition> GetGoods(ShopKey key) =>
+        ShopGoodsCatalog.GetGoods(key);
+
+    public bool TryGetGoods(
+        ShopKey shopKey,
+        ItemKey itemKey,
+        out ShopGoodsDefinition goods) =>
+        ShopGoodsCatalog.TryGet(shopKey, itemKey, out goods);
 }

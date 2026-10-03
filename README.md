@@ -38,7 +38,15 @@ lifecycle, player-state, and item-action events without changing game data.
 5. Start the game again and inspect `BepInEx\LogOutput.log`. A successful load
    contains `Back To The Dawn Mod Loader v0.1.0 loaded successfully.`
 
+## 分享前置安装包
+
+运行 `.\scripts\Pack-Release.ps1` 构建 Release 版本并在 `dist` 下生成可分享的 ZIP。安装包包含 Loader、ModAPI、PhoneAPI 和中文安装说明；接收者安装 BepInEx 6 IL2CPP 后，将 ZIP 解压到游戏目录即可使用。
+
+安装步骤、Mod 目录布局和开发者引用方式见 [安装与分享说明](docs/DISTRIBUTION.md)。
+
 ## Create a Mod
+
+电话模组可直接使用 `Manifest.json` 和对话 JSON，无需编译 DLL。加载器递归读取台词和选项，格式见 [JSON 电话模组](docs/PHONE_JSON.md)，可复制的示例位于 `examples/BackToTheDawn.JsonPhoneMod/`。
 
 Generate a starter Mod project:
 
@@ -106,6 +114,7 @@ Mod. Remove those two test directories from `BepInEx/mods` after verification.
 ## Layout
 
 - `src/BackToTheDawn.ModAPI`: stable public API for third-party mods
+- `src/BackToTheDawn.PhoneAPI`: optional standalone phone dialogue and number API
 - `src/BackToTheDawn.Loader`: BepInEx IL2CPP loader and game adapters
 - `examples/BackToTheDawn.ExampleMod`: external ModAPI consumer example
   - `src/main`: C# mod source files

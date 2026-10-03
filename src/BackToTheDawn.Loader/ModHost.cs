@@ -91,6 +91,11 @@ internal sealed class ModHost
                     $"[ModHost] Shutdown failed for {loadedMod.Descriptor.Manifest.Id}: " +
                     Unwrap(exception));
             }
+            finally
+            {
+                PhoneRuntime.UnregisterMod(loadedMod.Descriptor.Manifest.Id);
+                loadedMod.Context.Resources.UnloadAllBundles();
+            }
         }
 
         _loadedMods.Clear();
@@ -99,26 +104,35 @@ internal sealed class ModHost
     private bool InitializeOne(ModDescriptor descriptor)
     {
         IMod? instance = null;
+        ModContext? context = null;
         var stopwatch = Stopwatch.StartNew();
         Plugin.Logger?.LogInfo(
             $"[ModHost] Initializing {descriptor.Manifest.Id} " +
             $"(depends: {string.Join(", ", descriptor.Manifest.Dependencies)}).");
         try
         {
-            var assembly = Assembly.LoadFrom(descriptor.AssemblyPath);
-            var entryType = assembly.GetType(descriptor.Manifest.EntryType, throwOnError: true)
-                ?? throw new InvalidOperationException(
-                    $"Entry type '{descriptor.Manifest.EntryType}' was not found.");
-
-            if (!typeof(IMod).IsAssignableFrom(entryType) || entryType.IsAbstract)
+            Assembly? assembly = null;
+            if (descriptor.Manifest.IsJsonPhoneMod)
             {
-                throw new InvalidOperationException(
-                    $"Entry type '{descriptor.Manifest.EntryType}' must be a concrete IMod.");
+                instance = new JsonPhoneMod();
             }
+            else
+            {
+                assembly = Assembly.LoadFrom(descriptor.AssemblyPath);
+                var entryType = assembly.GetType(descriptor.Manifest.EntryType, throwOnError: true)
+                    ?? throw new InvalidOperationException(
+                        $"Entry type '{descriptor.Manifest.EntryType}' was not found.");
 
-            instance = Activator.CreateInstance(entryType) as IMod
-                ?? throw new InvalidOperationException(
-                    $"Entry type '{descriptor.Manifest.EntryType}' must have a public parameterless constructor.");
+                if (!typeof(IMod).IsAssignableFrom(entryType) || entryType.IsAbstract)
+                {
+                    throw new InvalidOperationException(
+                        $"Entry type '{descriptor.Manifest.EntryType}' must be a concrete IMod.");
+                }
+
+                instance = Activator.CreateInstance(entryType) as IMod
+                    ?? throw new InvalidOperationException(
+                        $"Entry type '{descriptor.Manifest.EntryType}' must have a public parameterless constructor.");
+            }
 
             var logger = new BepInExModLogger(
                 Plugin.Logger ?? throw new InvalidOperationException("Loader logger is unavailable."),
@@ -135,14 +149,19 @@ internal sealed class ModHost
                     "Defaults will be used.");
             }
 
-            var context = ModContext.FromAssembly(assembly, descriptor.Manifest, logger, config);
+            context = descriptor.Manifest.IsJsonPhoneMod
+                ? ModContext.FromDirectory(descriptor.DirectoryPath, descriptor.Manifest, logger, config)
+                : ModContext.FromAssembly(assembly!, descriptor.Manifest, logger, config);
+            context.Resources.AttachAssetBundleProvider(new RuntimeModAssetBundles(logger));
             instance.Initialize(context);
 
-            _loadedMods.Add(new LoadedMod(descriptor, instance));
+            _loadedMods.Add(new LoadedMod(descriptor, instance, context));
             Plugin.Logger?.LogInfo(
                 $"[ModHost] Initialized {descriptor.Manifest.Id} " +
-                $"using {descriptor.Manifest.EntryType} in {stopwatch.ElapsedMilliseconds} ms.");
-            GameEvents.RaiseModInitialized(descriptor, descriptor.Manifest.EntryType);
+                $"using {(descriptor.Manifest.IsJsonPhoneMod ? "JSON phone data" : descriptor.Manifest.EntryType)} " +
+                $"in {stopwatch.ElapsedMilliseconds} ms.");
+            GameEvents.RaiseModInitialized(descriptor,
+                descriptor.Manifest.IsJsonPhoneMod ? nameof(JsonPhoneMod) : descriptor.Manifest.EntryType);
             return true;
         }
         catch (Exception exception)
@@ -160,6 +179,9 @@ internal sealed class ModHost
                         $"{descriptor.Manifest.Id}: {Unwrap(shutdownException)}");
                 }
             }
+
+            PhoneRuntime.UnregisterMod(descriptor.Manifest.Id);
+            context?.Resources.UnloadAllBundles();
 
             Fail(descriptor, Unwrap(exception).Message);
             return false;
@@ -193,7 +215,10 @@ internal sealed class ModHost
         return exception;
     }
 
-    private sealed record LoadedMod(ModDescriptor Descriptor, IMod Instance);
+    private sealed record LoadedMod(
+        ModDescriptor Descriptor,
+        IMod Instance,
+        ModContext Context);
 }
 
 internal sealed class BepInExModLogger : IModLogger

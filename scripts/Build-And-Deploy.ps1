@@ -5,7 +5,11 @@ param(
 
     [string]$GameDirectory = (Split-Path -Parent $PSScriptRoot),
 
-    [switch]$IncludeLifecycleTests
+    [switch]$IncludeLifecycleTests,
+
+    [switch]$IncludeAssetBundleProbe,
+
+    [switch]$SkipExampleMod
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,10 +23,12 @@ $exampleResourceOutputDirectory = Join-Path $exampleModDirectory "resource"
 $exampleManifestPath = Join-Path $rootDirectory "examples\BackToTheDawn.ExampleMod\mod.json"
 $loaderOutputDll = Join-Path $rootDirectory "src\BackToTheDawn.Loader\bin\$Configuration\net6.0\BackToTheDawn.Loader.dll"
 $apiOutputDll = Join-Path $rootDirectory "src\BackToTheDawn.ModAPI\bin\$Configuration\net6.0\BackToTheDawn.ModAPI.dll"
+$phoneApiOutputDll = Join-Path $rootDirectory "src\BackToTheDawn.PhoneAPI\bin\$Configuration\net6.0\BackToTheDawn.PhoneAPI.dll"
 $exampleOutputDll = Join-Path $rootDirectory "examples\BackToTheDawn.ExampleMod\bin\$Configuration\net6.0\BackToTheDawn.ExampleMod.dll"
 $lifecycleTestRoot = Join-Path $rootDirectory "tests"
 $dependencyTestProject = Join-Path $lifecycleTestRoot "BackToTheDawn.DependencyMod\BackToTheDawn.DependencyMod.csproj"
 $failingTestProject = Join-Path $lifecycleTestRoot "BackToTheDawn.FailingMod\BackToTheDawn.FailingMod.csproj"
+$assetBundleProbeProject = Join-Path $lifecycleTestRoot "BackToTheDawn.AssetBundleProbe\BackToTheDawn.AssetBundleProbe.csproj"
 $modsOutputDirectory = Join-Path $GameDirectory "BepInEx\mods"
 $env:DOTNET_CLI_HOME = Join-Path $rootDirectory ".tools\dotnet-home"
 $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = "1"
@@ -65,26 +71,36 @@ if ($IncludeLifecycleTests) {
     }
 }
 
+if ($IncludeAssetBundleProbe) {
+    & $dotnetExe build $assetBundleProbeProject --configuration $Configuration
+    if ($LASTEXITCODE -ne 0) {
+        throw "The AssetBundle probe Mod failed to build."
+    }
+}
+
 New-Item -ItemType Directory -Path $loaderPluginDirectory -Force | Out-Null
-New-Item -ItemType Directory -Path $exampleModDirectory -Force | Out-Null
-$exampleResourceItems = Get-ChildItem -LiteralPath $exampleResourceDirectory -Force -ErrorAction SilentlyContinue
-if ($exampleResourceItems) {
-    New-Item -ItemType Directory -Path $exampleResourceOutputDirectory -Force | Out-Null
-}
+Copy-Item -LiteralPath $loaderOutputDll,$apiOutputDll,$phoneApiOutputDll -Destination $loaderPluginDirectory -Force
+Write-Host "Deployed Loader, ModAPI, and PhoneAPI to $loaderPluginDirectory"
 
-Copy-Item -LiteralPath $loaderOutputDll,$apiOutputDll -Destination $loaderPluginDirectory -Force
-Copy-Item -LiteralPath $exampleOutputDll,$exampleManifestPath -Destination $exampleModDirectory -Force
-if ($exampleResourceItems) {
-    $exampleResourceItems | Copy-Item -Destination $exampleResourceOutputDirectory -Recurse -Force
-}
+if (-not $SkipExampleMod) {
+    New-Item -ItemType Directory -Path $exampleModDirectory -Force | Out-Null
+    $exampleResourceItems = Get-ChildItem -LiteralPath $exampleResourceDirectory -Force -ErrorAction SilentlyContinue
+    if ($exampleResourceItems) {
+        New-Item -ItemType Directory -Path $exampleResourceOutputDirectory -Force | Out-Null
+    }
 
-Write-Host "Deployed Loader and ModAPI to $loaderPluginDirectory"
-Write-Host "Deployed ExampleMod to $exampleModDirectory"
-if ($exampleResourceItems) {
-    Write-Host "Deployed ExampleMod resources to $exampleResourceOutputDirectory"
-}
-if (Test-Path -LiteralPath $legacyExamplePluginDirectory) {
-    Write-Warning "Legacy ExampleMod directory still exists at '$legacyExamplePluginDirectory'. Remove or move it to avoid duplicate discovery."
+    Copy-Item -LiteralPath $exampleOutputDll,$exampleManifestPath -Destination $exampleModDirectory -Force
+    if ($exampleResourceItems) {
+        $exampleResourceItems | Copy-Item -Destination $exampleResourceOutputDirectory -Recurse -Force
+    }
+
+    Write-Host "Deployed ExampleMod to $exampleModDirectory"
+    if ($exampleResourceItems) {
+        Write-Host "Deployed ExampleMod resources to $exampleResourceOutputDirectory"
+    }
+    if (Test-Path -LiteralPath $legacyExamplePluginDirectory) {
+        Write-Warning "Legacy ExampleMod directory still exists at '$legacyExamplePluginDirectory'. Remove or move it to avoid duplicate discovery."
+    }
 }
 
 if ($IncludeLifecycleTests) {
@@ -105,4 +121,22 @@ if ($IncludeLifecycleTests) {
         Copy-Item -LiteralPath (Join-Path $testDeployment.Output ($testDeployment.Name + ".dll")),(Join-Path $testDeployment.Output "mod.json") -Destination $testDirectory -Force
         Write-Host "Deployed lifecycle test Mod to $testDirectory"
     }
+}
+
+if ($IncludeAssetBundleProbe) {
+    $assetBundleProbeName = "BackToTheDawn.AssetBundleProbe"
+    $assetBundleProbeOutput = Join-Path $lifecycleTestRoot "$assetBundleProbeName\bin\$Configuration\net6.0"
+    $assetBundleProbeSourceResources = Join-Path $lifecycleTestRoot "$assetBundleProbeName\resource"
+    $assetBundleProbeDirectory = Join-Path $modsOutputDirectory $assetBundleProbeName
+    New-Item -ItemType Directory -Path $assetBundleProbeDirectory -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $assetBundleProbeOutput ($assetBundleProbeName + ".dll")),(Join-Path $assetBundleProbeOutput "mod.json") -Destination $assetBundleProbeDirectory -Force
+    if (Test-Path -LiteralPath $assetBundleProbeSourceResources) {
+        $assetBundleProbeResources = Get-ChildItem -LiteralPath $assetBundleProbeSourceResources -Force
+        if ($assetBundleProbeResources) {
+            $assetBundleProbeOutputResources = Join-Path $assetBundleProbeDirectory "resource"
+            New-Item -ItemType Directory -Path $assetBundleProbeOutputResources -Force | Out-Null
+            $assetBundleProbeResources | Copy-Item -Destination $assetBundleProbeOutputResources -Recurse -Force
+        }
+    }
+    Write-Host "Deployed AssetBundle probe Mod to $assetBundleProbeDirectory"
 }

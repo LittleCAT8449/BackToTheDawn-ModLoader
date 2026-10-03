@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "type": "phoneConversation",
+  "key": "repair-shop",
+  "number": "48329",
+  "displayName": "JSON 修理店",
+  "addToPhoneBook": true,
+  "lines": [
+    {
+      "id": "menu",
+      "speakerType": "Caller",
+      "text": "喂，这里是 JSON 电话示例。你需要什么服务？",
+      "options": [
+        { "id": "repair", "text": "修理收音机", "nextLineId": "repair-question" },
+        { "id": "hours", "text": "询问营业时间", "nextLineId": "hours-answer" },
+        { "id": "hang-up", "text": "挂断", "endCall": true }
+      ]
+    },
+    {
+      "id": "repair-question",
+      "speakerType": "Player",
+      "text": "请问能修理收音机吗？"
+    },
+    {
+      "speakerType": "Caller",
+      "text": "可以，带来后我会检查零件和费用。",
+      "endCall": true
+    },
+    {
+      "id": "hours-answer",
+      "speakerType": "Caller",
+      "text": "今天晚上六点关门。还需要其他服务吗？",
+      "nextLineId": "menu"
+    }
+  ]
+}

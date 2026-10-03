@@ -7,6 +7,7 @@ internal static class GameContextAdapter
     internal static bool IsGameplayReady { get; set; }
     private static GameTimeSnapshot? _lastPublishedTime;
     private static int? _lastPublishedMapId;
+    private static string? _lastPublishedMapName;
     private static PlayerSnapshot? _lastPublishedPlayer;
     private static readonly HashSet<string> ObservedPlayerHookSources = new();
     private static readonly object PendingItemUseSync = new();
@@ -442,6 +443,7 @@ internal static class GameContextAdapter
     {
         _lastPublishedTime = CaptureTime();
         _lastPublishedMapId = GetCurrentMapId();
+        _lastPublishedMapName = GetMapName(_lastPublishedMapId.Value);
         _lastPublishedPlayer = CapturePlayer();
     }
 
@@ -461,14 +463,20 @@ internal static class GameContextAdapter
     {
         var currentMapId = map.id;
         var previousMapId = _lastPublishedMapId ?? MapManage.previousMapId;
+        var previousName = _lastPublishedMapName ?? GetMapName(previousMapId);
+        var currentName = GetMapName(currentMapId);
         _lastPublishedMapId = currentMapId;
+        _lastPublishedMapName = currentName;
 
         if (previousMapId != currentMapId)
         {
             GameEvents.RaiseMapChanged(
                 previousMapId,
                 currentMapId,
-                GetMapName(currentMapId));
+                currentName);
+            GameEvents.RaiseRoomChanged(
+                new RoomSnapshot(previousMapId, previousName),
+                new RoomSnapshot(currentMapId, currentName));
         }
     }
 
@@ -1060,6 +1068,11 @@ internal static class GameContextAdapter
 
     internal static string GetMapName(int mapId)
     {
+        if (RoomCloneRuntime.TryGetName(mapId, out var cloneName))
+        {
+            return cloneName;
+        }
+
         if (mapId == 0)
         {
             return string.Empty;
@@ -1080,6 +1093,7 @@ internal static class GameContextAdapter
         IsGameplayReady = false;
         _lastPublishedTime = null;
         _lastPublishedMapId = null;
+        _lastPublishedMapName = null;
         _lastPublishedPlayer = null;
         ObservedPlayerHookSources.Clear();
         lock (PendingItemUseSync)

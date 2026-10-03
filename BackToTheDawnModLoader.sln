@@ -7,7 +7,13 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackToTheDawn.Loader", "src
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackToTheDawn.ModAPI", "src\BackToTheDawn.ModAPI\BackToTheDawn.ModAPI.csproj", "{0D39BD77-5EA8-4750-AF12-3C25121443C7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackToTheDawn.PhoneAPI", "src\BackToTheDawn.PhoneAPI\BackToTheDawn.PhoneAPI.csproj", "{17C035DE-F5B5-44F8-BB82-63D13F6BFD42}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackToTheDawn.ExampleMod", "examples\BackToTheDawn.ExampleMod\BackToTheDawn.ExampleMod.csproj", "{FC1EFA74-5460-4436-B45A-1F9ABF131A34}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "examples", "examples", "{288F351D-5B86-473D-B844-C3FCFDCE3113}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackToTheDawn.RoomMonitor", "examples\BackToTheDawn.RoomMonitor\BackToTheDawn.RoomMonitor.csproj", "{C5C9D158-95F8-4C0F-90FF-45CB6925C511}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -23,9 +29,20 @@ Global
 		{0D39BD77-5EA8-4750-AF12-3C25121443C7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0D39BD77-5EA8-4750-AF12-3C25121443C7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0D39BD77-5EA8-4750-AF12-3C25121443C7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{17C035DE-F5B5-44F8-BB82-63D13F6BFD42}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{17C035DE-F5B5-44F8-BB82-63D13F6BFD42}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{17C035DE-F5B5-44F8-BB82-63D13F6BFD42}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{17C035DE-F5B5-44F8-BB82-63D13F6BFD42}.Release|Any CPU.Build.0 = Release|Any CPU
 		{FC1EFA74-5460-4436-B45A-1F9ABF131A34}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{FC1EFA74-5460-4436-B45A-1F9ABF131A34}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FC1EFA74-5460-4436-B45A-1F9ABF131A34}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FC1EFA74-5460-4436-B45A-1F9ABF131A34}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C5C9D158-95F8-4C0F-90FF-45CB6925C511}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C5C9D158-95F8-4C0F-90FF-45CB6925C511}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C5C9D158-95F8-4C0F-90FF-45CB6925C511}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C5C9D158-95F8-4C0F-90FF-45CB6925C511}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{C5C9D158-95F8-4C0F-90FF-45CB6925C511} = {288F351D-5B86-473D-B844-C3FCFDCE3113}
 	EndGlobalSection
 EndGlobal

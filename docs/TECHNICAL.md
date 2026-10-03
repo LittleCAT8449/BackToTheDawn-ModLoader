@@ -38,6 +38,7 @@ Mod 项目需要引用：
 BepInEx/core/BepInEx.Core.dll
 BepInEx/core/BepInEx.Unity.IL2CPP.dll
 BepInEx/plugins/BackToTheDawn.Loader/BackToTheDawn.ModAPI.dll
+BepInEx/plugins/BackToTheDawn.Loader/BackToTheDawn.PhoneAPI.dll (phone features only)
 ```
 
 项目目标框架应为：
@@ -46,15 +47,20 @@ BepInEx/plugins/BackToTheDawn.Loader/BackToTheDawn.ModAPI.dll
 <TargetFramework>net6.0</TargetFramework>
 ```
 
-公共 API 命名空间：
+核心公共 API 命名空间：
 
 ```csharp
 using BackToTheDawn.ModAPI;
 ```
 
+电话扩展单独发布在 `BackToTheDawn.PhoneAPI.dll` 中，需要电话功能的 Mod 额外引用该 DLL，并使用
+`BackToTheDawn.PhoneAPI` 命名空间。通过 `PhoneApi.For(context)` 获取当前 Mod 的 API 实例。
+
 ## Mod 清单与运行时上下文
 
-每个 Mod 根目录应包含一个 `mod.json`：
+纯 JSON 电话模组使用 `Manifest.json` 声明 `namespace` 和 `isPhoneMod`，无需入口 DLL，格式见 [JSON 电话模组](PHONE_JSON.md)。它们进入同一发现、依赖排序与卸载流程；`ModManifest.IsJsonPhoneMod` 可用于识别，描述符的 `AssemblyPath` 为空，运行上下文由 `ModContext.FromDirectory` 创建。
+
+DLL Mod 根目录应包含一个 `mod.json`：
 
 ```json
 {
@@ -217,9 +223,68 @@ if (ModApi.Game.TryGetSnapshot(out var state) && state is not null)
 }
 ```
 
-`ModApi.Items` 集中提供注册、目录/效果查询、行为注册，以及显式的运行时数字 ID 转换；
+`ModApi.Items` 集中提供注册、目录/效果查询、行为注册，以及显式的运行时数字 ID 转换。
 `ModApi.Events.Subscribe<T>()` 返回可释放的订阅句柄；`ModApi.Game` 只返回稳定快照。
 统一入口不改变旧静态 API 的语义，方便逐步迁移。
+
+电话 API 单独构建和部署，支持号码/新对话注册、原生选项与分支跳转、原版台词覆盖、台词和选项选择观察；使用示例见
+[`PHONE_API.md`](PHONE_API.md)。
+
+### 简单 GUI API
+
+`ModApi.Gui` 提供基于 Unity `OnGUI` 的轻量面板注册，不向 Mod 暴露 Unity 类型：
+
+```csharp
+var panel = ModApi.Gui.RegisterPanel("examplemod.status", gui =>
+{
+    gui.Label("ExampleMod online");
+    if (gui.Button("测试按钮"))
+    {
+        context.Logger.Info("GUI button clicked");
+    }
+});
+
+// Mod 关闭时释放
+panel.Dispose();
+```
+
+当前控件包括 `Label`、`Button`、`Toggle` 和 `TextField`。面板由加载器统一绘制在
+屏幕右侧；回调应只执行轻量绘制逻辑，持久化状态由 Mod 自行保存。
+
+### UGUI Canvas API
+推荐使用现代的保留模式 API：
+
+```csharp
+using var window = ModApi.UI.CreateWindow("examplemod.window", new CanvasOptions(
+    Width: 320, Height: 220, Draggable: true));
+window.Label("Example window")
+      .Image(context.Resources.GetPath("icon.png"), 64, 64)
+      .BeginHorizontal()
+      .Button("关闭", () => { /* 回调 */ })
+      .EndLayout();
+```
+
+`CanvasWindow` 会保留控件树并在内容变化时自动刷新；`Dispose()` 会移除窗口。
+`ModApi.Canvas` 仍作为兼容别名保留，旧版 `RegisterCanvas` 回调 API 继续可用。
+
+`ModApi.Canvas` 用于创建标准 Unity Canvas，支持图片、横纵布局、按钮回调、拖动和基础样式：
+
+```csharp
+var canvas = ModApi.Canvas.RegisterCanvas("examplemod.canvas", ui =>
+{
+    ui.Label("Example Canvas");
+    ui.Image(context.Resources.GetPath("icon.png"), 64, 64);
+    ui.BeginHorizontal();
+    ui.Button("关闭", () => { /* 回调 */ });
+    ui.EndLayout();
+}, new CanvasOptions(Draggable: true));
+
+// Mod 关闭时释放
+canvas.Dispose();
+```
+
+`CanvasStyle` 可配置背景色、文字色、强调色、字号、内边距和间距；图片路径必须位于
+模组资源目录或使用绝对路径。按钮点击由加载器轮询处理，以兼容 IL2CPP 环境。
 
 推荐使用统一的静态订阅入口：
 
@@ -552,6 +617,35 @@ public sealed record MapChangedEvent(
     string CurrentMapName);
 ```
 
+### Room API
+
+房间切换已从地图事件中独立封装为 `ModApi.Rooms`。底层仍使用 `Map.FocusMap`，但 Mod 不需要接触 Harmony：
+
+```csharp
+var subscription = ModApi.Rooms.Subscribe(info =>
+{
+    var previous = info.Previous?.Name ?? "<none>";
+    var current = info.Current.Name;
+    context.Logger.Info($"Room: {previous} -> {current}");
+});
+
+var currentRoom = ModApi.Rooms.Current;
+```
+
+实验性的运行时克隆接口（不写入存档）：
+
+```csharp
+var result = ModApi.Rooms.RegisterClone(
+    "examplemod:test_room",
+    "backtothedawn:church",
+    "教堂副本");
+if (result.Succeeded)
+    ModApi.Rooms.GoTo("examplemod:test_room");
+```
+
+`RoomChangedEvent` 提供 `Previous` 和 `Current` 两个 `RoomSnapshot`，包含稳定的地图 ID 和名称。
+当前克隆接口只用于运行时 POC，克隆房间不会持久化到存档。
+
 ### PlayerStateChanged
 
 当主角的 `health`、`mentality`、`satiety`、`energy`、`focus` 或 `money` 发生实际变化时触发：
@@ -732,8 +826,9 @@ _subscriptions.Add(ModApi.Events.Subscribe<TradeCompletedEvent>(info =>
 纪律/表现通过 `DisciplineDelta` 报告；屋顶交易可以在同一事件中同时携带金钱和纪律变化。
 关系值通过 `TradeCurrencyKind.Relationship` 与 `RelationshipDelta` 报告。
 玛姬邮寄和帮派商店使用 `TradePhase.OrderPlaced` 记录下单，第二天实际收到物品时再以
-`TradePhase.Delivered` 发出到账事件；到账事件的 `ItemDelta` 才代表库存已经增加，
-而下单事件使用 `RequestedCount` 表示期望数量。这样可以区分“扣除资源”和“延迟收货”。
+对于玛姬和帮派这类延迟商店，扣款/关系值扣除并创建订单后即视为购买完成；模组作者不需要
+等待第二天收货，也不会因为游戏内部库存容器不同而重复处理同一笔交易。`TradePhase.Delivered`
+仍保留用于兼容旧 API，但当前商店购买事件统一以 `OrderPlaced` 作为完成阶段。
 事件只报告主角的变化；物品仍不会暴露 `Thing`、`c_shop` 或物品数字 ID，NPC 的
 `CounterpartyId` 仅用于标识语义 Hook 捕获到的交易对象。
 
@@ -753,6 +848,26 @@ _subscriptions.Add(ModApi.Events.Subscribe<BetSettledEvent>(info =>
 `BetResult.Won` 只在明确收到 `BoxingBetWin` 时发布；`BetResult.Lost` 只在下注券被
 `BoxingBetExchange` 撕碎且操作成功后发布。下注券详情中的金额、目标和赔率通过
 `TradeBetInfo` 提供，中奖时 `Payout` 为实际到账金额，未中奖时为 `0`。
+
+彩票兑奖提供专用的 `LotteryPrizeCashedEvent`。它会在同一 Unity 帧内的
+`PrizeCashed` 票券消耗和奖励变化完成后发布一次，避免模组自行拼接多条库存日志：
+
+```csharp
+_subscriptions.Add(GameEvents.Subscribe<LotteryPrizeCashedEvent>(info =>
+{
+    foreach (var reward in info.Rewards)
+    {
+        context.Logger.Info(
+            $"lottery reward={reward.Kind}, item={reward.ItemKey?.ToString() ?? "<money>"}, " +
+            $"delta={reward.Delta}");
+    }
+}));
+```
+
+`LotteryRewardKind` 当前包括 `Money`、`Mentality`、`Item` 和
+`TicketConsumed`。未中奖或只有非物品反馈的彩票也会发布事件，奖励列表至少包含
+`TicketConsumed`；`LotteryNumber` 只有在兑奖入口能提供票面号码时才会有值。
+比赛和球赛属于自动结算流程，继续使用 `BetSettledEvent`，不走彩票兑奖事件。
 
 ### Relationship API
 
@@ -792,6 +907,33 @@ foreach (var shop in ModApi.Shops.Catalog)
         $"nativeIds={string.Join(\",\", shop.NativeShopIds)}");
 }
 ```
+
+商品配置会在商店 UI 首次加载或购买入口执行时被安全读取，并写入只读的
+`ShopGoodsCatalog`。Loader 会在运行时延迟扫描 `c_shop` 的静态配置集合，先建立全量目录，
+再通过商店 UI/购买入口做增量补充；如果配置尚未初始化，扫描会自动重试：
+
+```csharp
+foreach (var goods in ModApi.Shops.GetGoods(
+             new ShopKey("backtothedawn", "vending_machine")))
+{
+    context.Logger.Info(
+        $"item={goods.ItemKey}, price={goods.Price}, " +
+        $"currency={goods.PriceCurrency}, stock={goods.Stock}");
+}
+
+_subscriptions.Add(GameEvents.Subscribe<ShopGoodsObservedEvent>(info =>
+{
+    context.Logger.Info(
+        $"observed {info.Goods.ShopKey}/{info.Goods.ItemKey}: " +
+        $"price={info.Goods.Price}, stock={info.Goods.Stock}");
+}));
+```
+
+`Price`、`Stock`、日期和分组字段可能因游戏版本或商店类型不存在，缺失时返回
+`null`；`NativePriceType` 保留原始价格类型文本。该 API 只读，不会修改商店库存。
+当原始价格类型为空时，Loader 会依据 `ShopKey` 使用保守的默认货币：普通商店使用
+金钱，玛姬商店使用关系值，帮派商店使用帮派贡献，屋顶商店使用表现分；最终交易事件
+仍以实际 `TradeCompletedEvent` 的资源变化为准。
 
 `ShopId` 仍保留为原始兼容字段；`ShopKey` 是 Mod 应使用的稳定身份。
 游戏中多个配置 ID 映射到同一逻辑商店时（例如副队长商店的 1、2），它们共享
@@ -979,7 +1121,7 @@ BepInEx/LogOutput.log
 | `TimeChanged` | `GameProcess.PassMinutes` overloads | Postfix + snapshot deduplication |
 | `MapChanged` | `Map.FocusMap` | Postfix + map ID deduplication |
 | `PlayerItemAction` | `CharacterAttribute.UseItem` / `EquipmentItem` / `RemoveEquipmentItem`、`ThingPackage.MoveThingPlace`、`WidgetItemMiddleTools.ArrangePocketItemList`、物品摧毁确认方法、`WidgetItemOperationButton.ClickA` | Prefix + Postfix |
-| `TradeDetected` | `Prefab_OneTransaction.SubmitBuy` / `DoSell`、`Prefab_OneGift.DoGive`、`WidgetGiftItemTips.SubmitReceiveGiftBack`、`UI_ShopListUnit.SubmitBuy`、`UI_ShopListUnitRoof.SubmitBuy`、`UI_MailItem.SubmitMailItem`、`StorageGirlFriendShopBuyHistory.ReceiveGirlFriendPackage`、`UI_GangShopListUnit.Submitbuy`、`StorageGangShopApply.ReceiveGangShopItem`、`NpcItemBuyLogic.BuyItem` / `NpcItemSaleLogic.SaleItem`、库存/金钱/关系值入口 | 语义交易 Prefix/Postfix + 即时/延迟结算阶段 + 库存/金钱/纪律/关系值快照 + `ThingChangeReason` 分类 |
+| `TradeDetected` | `Prefab_OneTransaction.SubmitBuy` / `DoSell`、`Prefab_OneGift.DoGive`、`WidgetGiftItemTips.SubmitReceiveGiftBack`、`UI_ShopListUnit.SubmitBuy`、`UI_ShopListUnitRoof.SubmitBuy`、`UI_MailItem.SubmitMailItem`、`UI_GangShopListUnit.Submitbuy`、`NpcItemBuyLogic.BuyItem` / `NpcItemSaleLogic.SaleItem`、库存/金钱/关系值入口 | 语义交易 Prefix/Postfix + 下单/支付结算 + 库存/金钱/纪律/关系值快照 + `ThingChangeReason` 分类 |
 
 加载器可在游戏更新后更换底层 Hook，而不改变公共事件的语义。
 

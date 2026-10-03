@@ -27,6 +27,9 @@ internal static class ReadArchiveDataAndStartGamePatch
 {
     private static void Prefix(int archiveId)
     {
+        // Runtime room clones are session objects, not archive resources.
+        // Dispose them before MapManage.LoadWholeMap enumerates native maps.
+        RoomCloneRuntime.Reset();
         GameContextAdapter.IsGameplayReady = false;
         GameEvents.RaiseArchiveLoadStarted(archiveId);
     }

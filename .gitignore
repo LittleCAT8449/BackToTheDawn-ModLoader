@@ -12,6 +12,8 @@ BepInEx/
 dotnet/
 .tools/
 analysis/
+dist/
+disabled-mods/
 doorstop_config.ini
 .doorstop_version
 winhttp.dll

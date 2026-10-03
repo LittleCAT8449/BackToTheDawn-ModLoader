@@ -11,6 +11,9 @@
     <ProjectReference Include="..\..\src\BackToTheDawn.ModAPI\BackToTheDawn.ModAPI.csproj">
       <Private>false</Private>
     </ProjectReference>
+    <ProjectReference Include="..\..\src\BackToTheDawn.PhoneAPI\BackToTheDawn.PhoneAPI.csproj">
+      <Private>false</Private>
+    </ProjectReference>
   </ItemGroup>
 
   <ItemGroup>

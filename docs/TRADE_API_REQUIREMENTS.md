@@ -1,5 +1,7 @@
 # Back To The Dawn 交易与经济 API 需求清单
 
+商店专项拆分和当前完成度见 [`SHOP_API_STATUS.md`](SHOP_API_STATUS.md)。
+
 > 状态：Draft v0.1  
 > 目标：把游戏中不同的买卖、交换、赠送、生产和金融行为统一成稳定的 Mod API。  
 > 原则：先观察并确认真实结算，再公开事件；不让 Mod 直接依赖 UI、`ThingPackage`、`c_shop` 或数字 ID。
@@ -54,7 +56,7 @@ ReceiveGirlFriendPackage, ReceiveWeekFreeGoods
 
 ### T1. 统一交易模型
 
-- [x] 定义 `TradeKind`，至少覆盖 `NpcBuy`、`NpcSell`、`ShopBuy`、`GangShop`、`TvShopping`、`Gift`、`Production`、`Lottery`、`Bet`、`Bank` 和 `Service`。
+- [x] 定义 `TradeKind`，至少覆盖 `NpcBuy`、`NpcSell`、`ShopPurchase`、`GangShopPurchase`、`TvShopping`、`Gift`、`Production`、`Lottery`、`Betting`、`Bank` 和 `ServicePurchase`。
 - [x] 定义基础 `TradeStatus`：`Started`、`Completed`、`Cancelled`、`Failed`。
 - [x] 定义 `TradeCurrency`：`Money`、`Discipline`、`Chips`、`GangContribution`、`Relationship` 和 `Item`（物品变化由 `ItemDelta` 表示）。
 - [ ] 所有物品使用 `ItemKey`，不在公共事件中暴露数字 ID。
@@ -101,7 +103,7 @@ public sealed record TradeCompletedEvent(
 
 - [x] 提供 `ShopKey`/`ShopCatalog`，将原始商店 ID 映射为稳定命名空间；重复的原始 ID 可共享同一逻辑商店键。
 - [x] 记录屋顶兑换的商店 ID、物品 key、实际物品变化、金钱变化和纪律变化。
-- [ ] 记录普通商店的商品 ID、数量、单价、总价和剩余库存。
+- [x] 记录普通商店的商品 `ItemKey`、数量、总价和稳定 `ShopKey`。
 - [ ] 覆盖午餐、副队长、教士、女友、帮派、游戏卡和免费领取路径。
 - [ ] 区分普通金钱购买、纪律兑换、免费领取和“购买后包裹领取”。
 - [ ] 处理每日/每周刷新、文化限制、周末销售、售罄和权限限制。

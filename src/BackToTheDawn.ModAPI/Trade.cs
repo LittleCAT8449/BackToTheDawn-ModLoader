@@ -37,6 +37,10 @@ public enum TradeKind
     /// so the semantic shop ID is the authoritative discriminator.
     /// </summary>
     VendingMachinePurchase = 25,
+    /// <summary>
+    /// Purchase from a native shop without a more specific semantic category.
+    /// </summary>
+    ShopPurchase = 26,
 }
 
 /// <summary>
@@ -83,8 +87,9 @@ public enum TradeCurrencyKind
 
 /// <summary>
 /// Settlement phase for transactions that do not finish in the same UI
-/// action. Gang orders and Maggie mail orders are emitted when placed, while
-/// a later delivery observation is emitted with <see cref="Delivered"/>.
+/// action. Delayed shop purchases are considered complete when the order is
+/// placed; <see cref="Delivered"/> remains for compatibility with older mods
+/// and future non-shop workflows.
 /// </summary>
 public enum TradePhase
 {
@@ -135,6 +140,36 @@ public sealed record BetSettledEvent(
     long TransactionId,
     string Source,
     string Reason) : IGameEvent;
+
+public enum LotteryRewardKind
+{
+    Unknown = 0,
+    TicketConsumed = 1,
+    Money = 2,
+    Mentality = 3,
+    Item = 4,
+}
+
+public sealed record LotteryReward(
+    LotteryRewardKind Kind,
+    ItemKey? ItemKey,
+    int Delta);
+
+/// <summary>
+/// Raised once after the game's <c>PrizeCashed</c> inventory changes for one
+/// lottery ticket have settled for the current Unity frame. The reward list
+/// can contain money, mentality, and item changes; a ticket with no reward is
+/// reported with <see cref="LotteryRewardKind.TicketConsumed"/> only.
+/// </summary>
+public sealed record LotteryPrizeCashedEvent(
+    int CharacterId,
+    ItemKey TicketKey,
+    int TicketDelta,
+    IReadOnlyList<LotteryReward> Rewards,
+    long TransactionId,
+    string Source,
+    string Reason,
+    string? LotteryNumber = null) : IGameEvent;
 
 /// <summary>
 /// Stable transaction envelope shared by the lifecycle events. A transaction

@@ -105,6 +105,8 @@ public sealed class LoaderConsole : MonoBehaviour
                 WriteLine("item inject (experimental; changes live c_item only)");
                 WriteLine("item give <key> [count] (uses Inventory API; changes live inventory)");
                 WriteLine("inventory [add|remove] <key> [count] | inventory (show snapshot)");
+                WriteLine("rooms | rooms get <key> | rooms goto <key>");
+                WriteLine("rooms unregister <key> | rooms unregister-all <modId>");
                 WriteLine("mods | state | clear");
                 break;
             case "items":
@@ -117,6 +119,11 @@ public sealed class LoaderConsole : MonoBehaviour
                 break;
             case "inventory":
                 ExecuteInventoryCommand(
+                    parts.Length > 1 ? parts[1] : string.Empty,
+                    parts.Length > 2 ? parts[2] : string.Empty);
+                break;
+            case "rooms":
+                ExecuteRoomCommand(
                     parts.Length > 1 ? parts[1] : string.Empty,
                     parts.Length > 2 ? parts[2] : string.Empty);
                 break;
@@ -330,6 +337,69 @@ public sealed class LoaderConsole : MonoBehaviour
         foreach (var mod in ModRegistry.DiscoveredMods)
         {
             WriteLine($"{mod.Manifest.Id} v{mod.Manifest.Version}");
+        }
+    }
+
+    private void ExecuteRoomCommand(string subcommand, string argumentText)
+    {
+        subcommand = subcommand.Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(subcommand))
+        {
+            var rooms = ModApi.Rooms.GetRegisteredRooms();
+            WriteLine($"Rooms: {rooms.Count} registered.");
+            foreach (var room in rooms)
+            {
+                WriteLine(
+                    $"{room.Key} id={room.NativeId} name={room.Name} " +
+                    $"source={room.Source} loaded={room.IsLoaded}");
+            }
+
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(argumentText))
+        {
+            WriteLine(
+                "Usage: rooms | rooms get <key> | rooms goto <key> | " +
+                "rooms unregister <key> | rooms unregister-all <modId>");
+            return;
+        }
+
+        switch (subcommand)
+        {
+            case "get":
+                if (ModApi.Rooms.TryGet(argumentText, out var room))
+                {
+                    WriteLine(
+                        $"Room {room.Key}: id={room.NativeId}, name={room.Name}, " +
+                        $"source={room.Source}, loaded={room.IsLoaded}");
+                }
+                else
+                {
+                    WriteLine($"Room not found: {argumentText}");
+                }
+
+                break;
+            case "goto":
+                WriteLine(
+                    ModApi.Rooms.GoTo(argumentText)
+                        ? $"Room transition requested: {argumentText}"
+                        : $"Room transition failed: {argumentText}");
+                break;
+            case "unregister":
+                WriteLine(
+                    ModApi.Rooms.Unregister(argumentText)
+                        ? $"Room unregistered: {argumentText}"
+                        : $"Room unregister failed or not found: {argumentText}");
+                break;
+            case "unregister-all":
+                WriteLine(
+                    $"Rooms unregistered for {argumentText}: " +
+                    ModApi.Rooms.UnregisterAll(argumentText));
+                break;
+            default:
+                WriteLine("Unknown rooms command. Use rooms without arguments for a list.");
+                break;
         }
     }
 

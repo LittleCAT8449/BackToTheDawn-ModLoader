@@ -1,0 +1,10 @@
+{
+  "id": "dev.backtothedawn.assetbundleprobe",
+  "name": "Back To The Dawn AssetBundle Probe",
+  "version": "0.1.0",
+  "entryAssembly": "BackToTheDawn.AssetBundleProbe.dll",
+  "entryType": "BackToTheDawn.AssetBundleProbe.AssetBundleProbeEntry",
+  "dependencies": [
+    "dev.backtothedawn.loader"
+  ]
+}

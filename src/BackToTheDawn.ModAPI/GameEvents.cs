@@ -14,6 +14,7 @@ public static class GameEvents
     public static event Action<ItemRuntimeReadyEvent>? ItemRuntimeReady;
     public static event Action<TimeChangedEvent>? TimeChanged;
     public static event Action<MapChangedEvent>? MapChanged;
+    public static event Action<RoomChangedEvent>? RoomChanged;
     public static event Action<PlayerStateChangedEvent>? PlayerStateChanged;
     public static event Action<PlayerItemUsedEvent>? PlayerItemUsed;
     public static event Action<PlayerItemActionEvent>? PlayerItemAction;
@@ -24,6 +25,8 @@ public static class GameEvents
     public static event Action<TradeCompletedEvent>? TradeCompleted;
     public static event Action<TradeFailedEvent>? TradeFailed;
     public static event Action<BetSettledEvent>? BetSettled;
+    public static event Action<LotteryPrizeCashedEvent>? LotteryPrizeCashed;
+    public static event Action<ShopGoodsObservedEvent>? ShopGoodsObserved;
     public static event Action<ItemUseBeforeEvent>? ItemUseBefore;
     public static event Action<ItemUseAfterEvent>? ItemUseAfter;
     public static event Action<ModDiscoveredEvent>? ModDiscovered;
@@ -114,6 +117,14 @@ public static class GameEvents
             return new Subscription(() => MapChanged -= wrapper);
         }
 
+        if (typeof(TEvent) == typeof(RoomChangedEvent))
+        {
+            Action<RoomChangedEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            RoomChanged += wrapper;
+            return new Subscription(() => RoomChanged -= wrapper);
+        }
+
         if (typeof(TEvent) == typeof(PlayerStateChangedEvent))
         {
             Action<PlayerStateChangedEvent> wrapper = value =>
@@ -192,6 +203,22 @@ public static class GameEvents
                 handler((TEvent)(object)value);
             BetSettled += wrapper;
             return new Subscription(() => BetSettled -= wrapper);
+        }
+
+        if (typeof(TEvent) == typeof(LotteryPrizeCashedEvent))
+        {
+            Action<LotteryPrizeCashedEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            LotteryPrizeCashed += wrapper;
+            return new Subscription(() => LotteryPrizeCashed -= wrapper);
+        }
+
+        if (typeof(TEvent) == typeof(ShopGoodsObservedEvent))
+        {
+            Action<ShopGoodsObservedEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            ShopGoodsObserved += wrapper;
+            return new Subscription(() => ShopGoodsObserved -= wrapper);
         }
 
         if (typeof(TEvent) == typeof(ItemUseBeforeEvent))
@@ -306,6 +333,9 @@ public static class GameEvents
             new MapChangedEvent(previousMapId, currentMapId, currentMapName),
             nameof(MapChanged));
 
+    internal static void RaiseRoomChanged(RoomSnapshot? previous, RoomSnapshot current) =>
+        Raise(RoomChanged, new RoomChangedEvent(previous, current), nameof(RoomChanged));
+
     internal static void RaisePlayerStateChanged(
         PlayerSnapshot previous,
         PlayerSnapshot current,
@@ -401,6 +431,12 @@ public static class GameEvents
     internal static void RaiseBetSettled(BetSettledEvent value) =>
         Raise(BetSettled, value, nameof(BetSettled));
 
+    internal static void RaiseLotteryPrizeCashed(LotteryPrizeCashedEvent value) =>
+        Raise(LotteryPrizeCashed, value, nameof(LotteryPrizeCashed));
+
+    internal static void RaiseShopGoodsObserved(ShopGoodsDefinition value) =>
+        Raise(ShopGoodsObserved, new ShopGoodsObservedEvent(value), nameof(ShopGoodsObserved));
+
     internal static ItemUseBeforeEvent RaiseItemUseBefore(ItemUseContext context)
     {
         var value = new ItemUseBeforeEvent(context);
@@ -459,6 +495,7 @@ public static class GameEvents
         ItemRuntimeReady = null;
         TimeChanged = null;
         MapChanged = null;
+        RoomChanged = null;
         PlayerStateChanged = null;
         PlayerItemUsed = null;
         PlayerItemAction = null;
@@ -469,6 +506,8 @@ public static class GameEvents
         TradeCompleted = null;
         TradeFailed = null;
         BetSettled = null;
+        LotteryPrizeCashed = null;
+        ShopGoodsObserved = null;
         ItemUseBefore = null;
         ItemUseAfter = null;
         ModDiscovered = null;

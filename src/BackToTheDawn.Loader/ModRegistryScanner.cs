@@ -30,9 +30,22 @@ internal static class ModRegistryScanner
 
                 try
                 {
-                    manifest = ModManifest.Load(manifestPath);
-                    var assemblyPath = Path.Combine(directoryPath, manifest.EntryAssembly);
-                    if (!File.Exists(assemblyPath))
+                    var isJsonManifest = string.Equals(Path.GetFileName(manifestPath),
+                        "Manifest.json", StringComparison.OrdinalIgnoreCase);
+                    manifest = isJsonManifest ? JsonPhoneMod.LoadManifest(manifestPath) : ModManifest.Load(manifestPath);
+                    if (manifest is null)
+                    {
+                        continue;
+                    }
+                    if (File.Exists(Path.Combine(directoryPath, "mod.json")) &&
+                        File.Exists(Path.Combine(directoryPath, "Manifest.json")))
+                    {
+                        throw new InvalidDataException("A Mod directory must use either mod.json or Manifest.json, not both.");
+                    }
+                    var assemblyPath = manifest.IsJsonPhoneMod
+                        ? string.Empty
+                        : Path.Combine(directoryPath, manifest.EntryAssembly);
+                    if (!manifest.IsJsonPhoneMod && !File.Exists(assemblyPath))
                     {
                         Reject(
                             rejected,
@@ -45,7 +58,7 @@ internal static class ModRegistryScanner
                     var descriptor = new ModDescriptor(
                         manifest,
                         Path.GetFullPath(directoryPath),
-                        Path.GetFullPath(assemblyPath));
+                        manifest.IsJsonPhoneMod ? string.Empty : Path.GetFullPath(assemblyPath));
 
                     if (!candidatesById.TryAdd(manifest.Id, descriptor))
                     {
@@ -59,7 +72,7 @@ internal static class ModRegistryScanner
 
                     Plugin.Logger?.LogInfo(
                         $"[ModRegistry] Manifest discovered: {manifest.Id} v{manifest.Version} " +
-                        $"({manifest.EntryAssembly}).");
+                        $"({(manifest.IsJsonPhoneMod ? "JSON phone Mod" : manifest.EntryAssembly)}).");
                 }
                 catch (Exception exception)
                 {
@@ -106,18 +119,20 @@ internal static class ModRegistryScanner
 
     private static IEnumerable<string> EnumerateManifestPaths(string pluginRoot)
     {
-        var rootManifest = Path.Combine(pluginRoot, "mod.json");
-        if (File.Exists(rootManifest))
+        var directories = new[] { pluginRoot }.Concat(Directory.EnumerateDirectories(pluginRoot)
+            .Where(directory => (File.GetAttributes(directory) & FileAttributes.ReparsePoint) == 0)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase));
+        foreach (var directory in directories)
         {
-            yield return rootManifest;
-        }
-
-        foreach (var directory in Directory.EnumerateDirectories(pluginRoot).OrderBy(path => path))
-        {
-            var manifestPath = Path.Combine(directory, "mod.json");
-            if (File.Exists(manifestPath))
+            foreach (var name in new[] { "mod.json", "Manifest.json" })
             {
-                yield return manifestPath;
+                var manifestPath = Path.Combine(directory, name);
+                if (File.Exists(manifestPath))
+                {
+                    yield return manifestPath;
+                    // Scan reports a mixed manifest directory once.
+                    break;
+                }
             }
         }
     }

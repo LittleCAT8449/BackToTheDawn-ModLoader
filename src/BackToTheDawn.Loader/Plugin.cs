@@ -24,9 +24,15 @@ public sealed class Plugin : BasePlugin
     private ConfigEntry<bool>? _enableRuntimeItemInjection;
     private System.Action<Scene, LoadSceneMode>? _sceneLoadedHandler;
     private Harmony? _harmony;
+    private Harmony? _phoneHarmony;
     private ModRegistryRunner? _modRegistryRunner;
     private ModHost? _modHost;
     private LoaderConsole? _loaderConsole;
+    private LotteryPrizeFlushRunner? _lotteryPrizeFlushRunner;
+    private ShopGoodsScanRunner? _shopGoodsScanRunner;
+    private ModGuiRenderer? _modGuiRenderer;
+    private ModCanvasRenderer? _modCanvasRenderer;
+    private PhoneConversationOverlay? _phoneConversationOverlay;
     private Action<Item>? _itemRegisteredHandler;
 
     internal static bool RuntimeItemInjectionEnabled { get; private set; }
@@ -58,13 +64,13 @@ public sealed class Plugin : BasePlugin
         _showOverlay = Config.Bind(
             "Interface",
             "ShowStatusOverlay",
-            true,
+            false,
             "Show a small mod-loader status panel in the top-left corner.");
 
         _showConsole = Config.Bind(
             "Interface",
             "ShowConsole",
-            true,
+            false,
             "Enable the in-game loader console (toggle with F8).");
 
         _enableRuntimeProbe = Config.Bind(
@@ -117,6 +123,17 @@ public sealed class Plugin : BasePlugin
             Log.LogInfo("Game lifecycle Harmony hooks installed.");
         }
 
+        PhoneRuntimeProviders.Install();
+        if (!_enableLifecycleHooks.Value)
+        {
+            // PatchAll(assembly) above includes the phone patch classes too.
+            // Install them separately only when that assembly-wide pass is disabled.
+            _phoneHarmony = new Harmony(PluginGuid + ".phones");
+            PhoneRuntimePatchInstaller.Install(_phoneHarmony);
+        }
+        _phoneConversationOverlay = AddComponent<PhoneConversationOverlay>();
+        Log.LogInfo("Phone registration and dialogue hooks installed.");
+
         _modHost = new ModHost();
         ModHost.Current = _modHost;
         _modRegistryRunner = AddComponent<ModRegistryRunner>();
@@ -137,6 +154,21 @@ public sealed class Plugin : BasePlugin
             _loaderConsole = AddComponent<LoaderConsole>();
             Log.LogInfo("Loader console attached to the Unity runtime (toggle with F8).");
         }
+
+        _lotteryPrizeFlushRunner = AddComponent<LotteryPrizeFlushRunner>();
+        ShopGoodsRuntime.ScheduleFullScan();
+        _shopGoodsScanRunner = AddComponent<ShopGoodsScanRunner>();
+        RoomApi.CloneProvider = RoomCloneRuntime.Register;
+        RoomApi.GoToProvider = RoomCloneRuntime.GoTo;
+        RoomApi.IsRegisteredProvider = RoomCloneRuntime.IsRegistered;
+        RoomApi.GetProvider = RoomCloneRuntime.Get;
+        RoomApi.ListProvider = RoomCloneRuntime.GetAll;
+        RoomApi.UnregisterProvider = RoomCloneRuntime.Unregister;
+        RoomApi.UnregisterAllProvider = RoomCloneRuntime.UnregisterAll;
+        _modGuiRenderer = AddComponent<ModGuiRenderer>();
+        _modCanvasRenderer = AddComponent<ModCanvasRenderer>();
+        Log.LogInfo("UGUI canvas renderer attached to the Unity runtime.");
+
     }
 
     public override bool Unload()
@@ -155,6 +187,36 @@ public sealed class Plugin : BasePlugin
             _loaderConsole = null;
         }
 
+        if (_lotteryPrizeFlushRunner is not null)
+        {
+            UnityEngine.Object.Destroy(_lotteryPrizeFlushRunner);
+            _lotteryPrizeFlushRunner = null;
+        }
+
+        if (_shopGoodsScanRunner is not null)
+        {
+            UnityEngine.Object.Destroy(_shopGoodsScanRunner);
+            _shopGoodsScanRunner = null;
+        }
+
+        if (_modGuiRenderer is not null)
+        {
+            UnityEngine.Object.Destroy(_modGuiRenderer);
+            _modGuiRenderer = null;
+        }
+
+        if (_modCanvasRenderer is not null)
+        {
+            UnityEngine.Object.Destroy(_modCanvasRenderer);
+            _modCanvasRenderer = null;
+        }
+
+        if (_phoneConversationOverlay is not null)
+        {
+            UnityEngine.Object.Destroy(_phoneConversationOverlay);
+            _phoneConversationOverlay = null;
+        }
+
         if (_itemRegisteredHandler is not null)
         {
             ItemRegistry.ItemRegistered -= _itemRegisteredHandler;
@@ -163,11 +225,23 @@ public sealed class Plugin : BasePlugin
         _modHost?.Shutdown();
         ModHost.Current = null;
         _modHost = null;
+        _phoneHarmony?.UnpatchSelf();
+        _phoneHarmony = null;
         ModRegistry.Clear();
         GameEvents.ClearSubscribers();
+        PhoneRuntimeProviders.Clear();
         GameContextAdapter.Reset();
+        RoomCloneRuntime.Reset();
+        RoomApi.CloneProvider = null;
+        RoomApi.GoToProvider = null;
+        RoomApi.IsRegisteredProvider = null;
+        RoomApi.GetProvider = null;
+        RoomApi.ListProvider = null;
+        RoomApi.UnregisterProvider = null;
+        RoomApi.UnregisterAllProvider = null;
         TradeSignals.Reset();
         RuntimeItemCatalog.Reset();
+        ShopGoodsCatalog.Reset();
         RuntimeItemInjection.Reset();
         RuntimeItemAssets.Reset();
         ItemBehaviorRegistry.Reset();
@@ -197,7 +271,27 @@ public sealed class Plugin : BasePlugin
         {
             RuntimeObjectProbe.ScheduleScan(scene.name);
         }
+
+        ShopGoodsRuntime.ScheduleFullScan();
     }
+}
+
+internal sealed class LotteryPrizeFlushRunner : MonoBehaviour
+{
+    public LotteryPrizeFlushRunner(IntPtr pointer) : base(pointer)
+    {
+    }
+
+    private void Update() => TradeSignals.FlushPendingLotteryPrize();
+}
+
+internal sealed class ShopGoodsScanRunner : MonoBehaviour
+{
+    public ShopGoodsScanRunner(IntPtr pointer) : base(pointer)
+    {
+    }
+
+    private void Update() => ShopGoodsRuntime.TickFullScan();
 }
 
 public sealed class RuntimeObjectProbe : MonoBehaviour
