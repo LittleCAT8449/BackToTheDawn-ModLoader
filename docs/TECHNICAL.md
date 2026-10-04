@@ -1040,6 +1040,8 @@ public sealed record GameStateSnapshot(
 
 `ModApi.Tasks` 提供当前活动任务、任务记录和目标快照，不暴露游戏内部 `TaskDetail` / `TaskTarget` 对象。模组还可以用 `TaskApi.For(context)` 注册自己的任务定义、通过原生任务系统接取任务，并手动完成目标。手动目标在游戏配置中使用一个不会触发的原生目标类型来显示，实际完成条件由模组代码控制。
 
+任务也可以放在模组目录的 `tasks/*.json` 中。C# 模组里的任务 JSON 会在入口 `Initialize` 前注册，可直接用短任务 ID 接取和推进；独立 JSON 任务模组可由声明了它为依赖的 C# 模组通过 `ModTaskKey` 使用。字段、清单和完整示例见[JSON 任务定义](TASK_JSON.md)。
+
 `ModTaskDefinition.Category` 支持 `Prisoner`、`Mainline`、`Gang`、`DaJiao`、`HeiZhua`、`JianYa`、`BarberShop`、`PrisonGuardCaptain`、`PrisonGuardMailRoom`、`Side` 和 `Escape`。`Gang` 会显示在游戏的帮派分类下；如果任务属于某个具体帮派，可用其专属分类。Loader 按原生 `UI_TaskListTree.GetTitleByTaskType` 映射：`Side` 使用任务类型 8，与原版支线任务共用标题栏；因此它也会和 `PrisonGuardMailRoom` 显示在同一分组。原生类型 0 虽然也显示为“支线”，但使用另一标题对象。`Escape` 使用类型 9；类型 10 显示为旧主线标题。ModAPI 的枚举值是逻辑分类标识，不是原生任务类型数字。
 
 ```csharp

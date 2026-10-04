@@ -91,7 +91,18 @@ BepInEx/mods/YourShopMod/
     └── night-market.json
 ```
 
-`resource` 是否需要取决于模组。一个模组目录使用一种清单：C# 模组用 `mod.json`，JSON 电话或商店模组用 `Manifest.json`。JSON 模组的格式分别见 [电话 JSON](PHONE_JSON.md) 与 [商店 JSON](SHOP_JSON.md)。
+### JSON 任务定义
+
+纯 JSON 任务模组使用 `Manifest.json` 和 `tasks/`；带 C# 代码的模组也可以在 `mod.json` 模组目录中添加 `tasks/`，由 C# 接取任务并按游戏事件推进目标。
+
+```text
+BepInEx/mods/YourTaskMod/
+├── Manifest.json          # 或 C# 模组使用 mod.json + DLL
+└── tasks/
+    └── repair-radio.json
+```
+
+`resource` 是否需要取决于模组。一个模组目录使用一种清单：C# 模组用 `mod.json`，纯 JSON 电话、商店或任务模组用 `Manifest.json`。JSON 格式分别见 [电话 JSON](PHONE_JSON.md)、[商店 JSON](SHOP_JSON.md) 与 [任务 JSON](TASK_JSON.md)。
 
 重新启动游戏后生效。号码和玩法以模组作者的说明为准。
 
@@ -122,6 +133,7 @@ C# 项目目标框架使用 `net6.0`，引用前置提供的 `BackToTheDawn.ModA
 - [电话 API](PHONE_API.md)
 - [JSON 电话模组格式](PHONE_JSON.md)
 - [商店注册 API](SHOP_API.md)
+- [JSON 任务定义](TASK_JSON.md)
 - [技术与公共 API](TECHNICAL.md)
 
 开发工作区执行 `scripts/Pack-Release.ps1` 可生成前置分享包。默认构建 Release；`-SkipBuild` 可用已有 DLL 重新打包文档。安装包不包含游戏文件、存档、个人配置、日志或生成的 interop 文件。

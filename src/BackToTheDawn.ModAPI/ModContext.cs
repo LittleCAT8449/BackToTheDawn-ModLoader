@@ -23,9 +23,13 @@ public sealed record ModManifest(
     [JsonIgnore]
     public bool IsJsonShopMod { get; internal init; }
 
+    /// <summary>True for a data-only task Mod discovered through Manifest.json.</summary>
+    [JsonIgnore]
+    public bool IsJsonTaskMod { get; internal init; }
+
     /// <summary>True when this Mod uses a data-only JSON entry point.</summary>
     [JsonIgnore]
-    public bool IsJsonDataMod => IsJsonPhoneMod || IsJsonShopMod;
+    public bool IsJsonDataMod => IsJsonPhoneMod || IsJsonShopMod || IsJsonTaskMod;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

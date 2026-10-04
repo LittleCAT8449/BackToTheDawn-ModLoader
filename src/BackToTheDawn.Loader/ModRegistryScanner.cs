@@ -177,6 +177,7 @@ internal static class ModRegistryScanner
         var types = new List<string>();
         if (manifest.IsJsonPhoneMod) types.Add("phone");
         if (manifest.IsJsonShopMod) types.Add("shop");
+        if (manifest.IsJsonTaskMod) types.Add("task");
         return $"JSON {string.Join(" + ", types)} Mod";
     }
 }

@@ -131,6 +131,11 @@ if ($IncludeTaskApiExample) {
         (Join-Path $taskApiExampleDirectory "mod.json"), `
         (Join-Path $taskApiExampleDirectory "README.md") `
         -Destination $taskApiExampleDeployDirectory -Force
+    $taskApiExampleTasksDirectory = Join-Path $taskApiExampleDirectory "tasks"
+    if (Test-Path -LiteralPath $taskApiExampleTasksDirectory) {
+        Copy-Item -LiteralPath $taskApiExampleTasksDirectory `
+            -Destination $taskApiExampleDeployDirectory -Recurse -Force
+    }
     Write-Host "Deployed Task API Example Mod to $taskApiExampleDeployDirectory"
 }
 

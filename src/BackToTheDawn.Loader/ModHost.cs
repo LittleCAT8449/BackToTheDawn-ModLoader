@@ -155,6 +155,14 @@ internal sealed class ModHost
                 ? ModContext.FromDirectory(descriptor.DirectoryPath, descriptor.Manifest, logger, config)
                 : ModContext.FromAssembly(assembly!, descriptor.Manifest, logger, config);
             context.Resources.AttachAssetBundleProvider(new RuntimeModAssetBundles(logger));
+
+            if (!descriptor.Manifest.IsJsonDataMod)
+            {
+                // C# Mods can keep task definitions in tasks/*.json and then
+                // accept/progress them from their entry point using TaskApi.
+                new JsonTaskMod().Initialize(context);
+            }
+
             instance.Initialize(context);
 
             _loadedMods.Add(new LoadedMod(descriptor, instance, context));

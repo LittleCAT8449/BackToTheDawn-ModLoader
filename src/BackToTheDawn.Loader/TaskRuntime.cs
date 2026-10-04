@@ -29,7 +29,10 @@ internal static class TaskRuntime
         public readonly List<c_task_target> TargetRows = new();
     }
 
-    private sealed record PendingAcceptance(string OwnerId, ModTaskKey Key);
+    private sealed record PendingAcceptance(
+        string TaskOwnerId,
+        string RequesterId,
+        ModTaskKey Key);
 
     private static readonly Dictionary<ModTaskKey, RegisteredTask> Registered = new();
     private static readonly List<PendingAcceptance> PendingAcceptances = new();
@@ -91,7 +94,8 @@ internal static class TaskRuntime
     internal static void UnregisterMod(string ownerId)
     {
         PendingAcceptances.RemoveAll(entry =>
-            entry.OwnerId.Equals(ownerId, StringComparison.OrdinalIgnoreCase));
+            entry.TaskOwnerId.Equals(ownerId, StringComparison.OrdinalIgnoreCase) ||
+            entry.RequesterId.Equals(ownerId, StringComparison.OrdinalIgnoreCase));
 
         foreach (var registration in Registered.Values
                      .Where(entry => entry.OwnerId.Equals(ownerId, StringComparison.OrdinalIgnoreCase))
@@ -183,10 +187,10 @@ internal static class TaskRuntime
 
     private static TaskMutationResult Accept(string ownerId, ModTaskKey key)
     {
-        if (!TryGetOwnedRegistration(ownerId, key, out var registration))
+        if (!TryGetRegistration(key, out var registration))
         {
             return Result(key, TaskMutationStatus.NotFound,
-                $"Task '{key}' is not registered by this Mod.");
+                $"Task '{key}' is not registered. Check that its owner Mod is loaded.");
         }
 
         if (HasTaskRecord(registration.NativeId))
@@ -201,7 +205,7 @@ internal static class TaskRuntime
                 $"Task '{key}' is already queued for acceptance.");
         }
 
-        PendingAcceptances.Add(new PendingAcceptance(ownerId, key));
+        PendingAcceptances.Add(new PendingAcceptance(registration.OwnerId, ownerId, key));
         return Result(key, TaskMutationStatus.Scheduled,
             "Task acceptance is queued until gameplay and its task configuration are ready.");
     }
@@ -211,10 +215,10 @@ internal static class TaskRuntime
         ModTaskKey key,
         string objectiveId)
     {
-        if (!TryGetOwnedRegistration(ownerId, key, out var registration))
+        if (!TryGetRegistration(key, out var registration))
         {
             return Result(key, TaskMutationStatus.NotFound,
-                $"Task '{key}' is not registered by this Mod.");
+                $"Task '{key}' is not registered. Check that its owner Mod is loaded.");
         }
 
         var objectiveIndex = -1;
@@ -582,13 +586,12 @@ internal static class TaskRuntime
         return false;
     }
 
-    private static bool TryGetOwnedRegistration(
-        string ownerId,
+    private static bool TryGetRegistration(
         ModTaskKey key,
         out RegisteredTask registration)
     {
-        if (key.Namespace.Equals(ownerId, StringComparison.OrdinalIgnoreCase) &&
-            Registered.TryGetValue(key, out registration!))
+        if (Registered.TryGetValue(key, out registration!) &&
+            key.Namespace.Equals(registration.OwnerId, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

@@ -1,0 +1,17 @@
+{
+  "type": "task",
+  "schemaVersion": 1,
+  "key": "json-find-apple",
+  "name": "留给病号的苹果",
+  "description": "医务室有人说，值夜班的病号已经两天没吃过新鲜东西。你答应替他找一个苹果，再悄悄放到床边。",
+  "category": "Side",
+  "acceptedDescription": "先找一个苹果。别声张是谁托你办这件事。",
+  "completedDescription": "苹果已经送到床边。那名病号没有多说什么，只朝你点了点头。",
+  "objectives": [
+    {
+      "id": "bring-apple",
+      "description": "获得一个苹果。",
+      "completedDescription": "你找到了一颗新鲜苹果，可以把它送去医务室了。"
+    }
+  ]
+}

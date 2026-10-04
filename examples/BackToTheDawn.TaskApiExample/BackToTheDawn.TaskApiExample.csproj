@@ -15,5 +15,6 @@
 
   <ItemGroup>
     <None Include="mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="tasks\**\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

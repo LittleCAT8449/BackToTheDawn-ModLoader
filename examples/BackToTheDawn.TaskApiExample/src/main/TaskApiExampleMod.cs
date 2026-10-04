@@ -4,6 +4,9 @@ namespace BackToTheDawn.TaskApiExample;
 
 public sealed class TaskApiExampleMod : IMod
 {
+    private const string JsonDefinedTaskId = "json-find-apple";
+    private static readonly ItemKey AppleKey = new("backtothedawn", "apple");
+
     private static readonly ModTaskDefinition[] Quests =
     {
         new(
@@ -173,6 +176,7 @@ public sealed class TaskApiExampleMod : IMod
         }
 
         _subscriptions.Add(ModApi.Events.Subscribe<GameplayReadyEvent>(OnGameplayReady));
+        _subscriptions.Add(ModApi.Events.Subscribe<InventoryChangedEvent>(OnInventoryChanged));
     }
 
     public void Shutdown()
@@ -202,5 +206,23 @@ public sealed class TaskApiExampleMod : IMod
                 $"Quest acceptance ({quest.Category} / {quest.Name}): " +
                 $"{result.Status} - {result.Message}");
         }
+
+        var jsonTaskResult = _tasks.Accept(JsonDefinedTaskId);
+        _context.Logger.Info(
+            $"JSON-defined task acceptance: {jsonTaskResult.Status} - {jsonTaskResult.Message}");
+    }
+
+    private void OnInventoryChanged(InventoryChangedEvent change)
+    {
+        if (_tasks is null || _context is null || !change.Succeeded ||
+            change.Change != InventoryChangeKind.Added || change.Delta <= 0 ||
+            change.ItemKey != AppleKey)
+        {
+            return;
+        }
+
+        var result = _tasks.CompleteObjective(JsonDefinedTaskId, "bring-apple");
+        _context.Logger.Info(
+            $"JSON-defined task objective: {result.Status} - {result.Message}");
     }
 }

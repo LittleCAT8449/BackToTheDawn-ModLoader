@@ -19,14 +19,16 @@ internal sealed class JsonPhoneMod : IMod
     {
         var document = JsonSerializer.Deserialize<ManifestDocument>(File.ReadAllText(path), JsonOptions)
             ?? throw new InvalidDataException("Manifest.json must contain an object.");
-        if (document.IsPhoneMod is null && document.IsShopMod is null)
+        if (document.IsPhoneMod is null && document.IsShopMod is null &&
+            document.IsTaskMod is null)
         {
             throw new InvalidDataException(
-                "Manifest.json requires at least one boolean field: 'isPhoneMod' or 'isShopMod'.");
+                "Manifest.json requires at least one boolean field: 'isPhoneMod', 'isShopMod', or 'isTaskMod'.");
         }
         var isPhoneMod = document.IsPhoneMod == true;
         var isShopMod = document.IsShopMod == true;
-        if (!isPhoneMod && !isShopMod)
+        var isTaskMod = document.IsTaskMod == true;
+        if (!isPhoneMod && !isShopMod && !isTaskMod)
         {
             Plugin.Logger?.LogInfo($"[JsonPhoneMod] Skipping inactive JSON Manifest.json: '{path}'.");
             return null;
@@ -51,6 +53,7 @@ internal sealed class JsonPhoneMod : IMod
         {
             IsJsonPhoneMod = isPhoneMod,
             IsJsonShopMod = isShopMod,
+            IsJsonTaskMod = isTaskMod,
         };
         manifest.Validate();
         return manifest;
@@ -256,6 +259,7 @@ internal sealed class JsonPhoneMod : IMod
         public string? Namespace { get; init; }
         public bool? IsPhoneMod { get; init; }
         public bool? IsShopMod { get; init; }
+        public bool? IsTaskMod { get; init; }
         public string? Name { get; init; }
         public string? Version { get; init; }
         public string[]? Dependencies { get; init; } = Array.Empty<string>();

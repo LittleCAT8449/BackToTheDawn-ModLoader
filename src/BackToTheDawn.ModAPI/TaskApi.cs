@@ -14,18 +14,27 @@ public sealed class TaskApi
         CompleteObjectiveProvider { get; set; }
 
     private readonly string? _ownerId;
+    private readonly HashSet<string>? _accessibleNamespaces;
 
     internal TaskApi()
     {
     }
 
-    private TaskApi(string ownerId) => _ownerId = ownerId;
+    private TaskApi(string ownerId, IEnumerable<string> dependencies)
+    {
+        _ownerId = ownerId;
+        _accessibleNamespaces = new HashSet<string>(
+            dependencies.Append(ownerId), StringComparer.OrdinalIgnoreCase);
+    }
 
-    /// <summary>Creates a task API scoped to the calling Mod's namespace.</summary>
+    /// <summary>
+    /// Creates a task API scoped to the calling Mod. It can register its own
+    /// tasks and use tasks owned by declared dependencies.
+    /// </summary>
     public static TaskApi For(ModContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return new TaskApi(context.Manifest.Id);
+        return new TaskApi(context.Manifest.Id, context.Manifest.Dependencies);
     }
 
     /// <summary>Gets currently active tasks. The result is an immutable snapshot.</summary>
@@ -78,7 +87,16 @@ public sealed class TaskApi
     public TaskMutationResult Accept(string taskId)
     {
         EnsureOwner();
-        var key = new ModTaskKey(_ownerId!, taskId);
+        return Accept(new ModTaskKey(_ownerId!, taskId));
+    }
+
+    /// <summary>
+    /// Accepts a task owned by this Mod or one of its declared dependencies.
+    /// Use this overload to access a task registered from another Mod's JSON.
+    /// </summary>
+    public TaskMutationResult Accept(ModTaskKey key)
+    {
+        EnsureCanUse(key);
         return AcceptProvider?.Invoke(_ownerId!, key) ?? Unavailable(key);
     }
 
@@ -90,6 +108,16 @@ public sealed class TaskApi
     {
         EnsureOwner();
         var key = new ModTaskKey(_ownerId!, taskId);
+        return CompleteObjective(key, objectiveId);
+    }
+
+    /// <summary>
+    /// Completes an objective in a task owned by this Mod or one of its
+    /// declared dependencies.
+    /// </summary>
+    public TaskMutationResult CompleteObjective(ModTaskKey key, string objectiveId)
+    {
+        EnsureCanUse(key);
         if (string.IsNullOrWhiteSpace(objectiveId))
         {
             throw new ArgumentException("An objective ID is required.", nameof(objectiveId));
@@ -114,6 +142,21 @@ public sealed class TaskApi
         {
             throw new InvalidOperationException(
                 "Use TaskApi.For(context) to register or modify tasks.");
+        }
+    }
+
+    private void EnsureCanUse(ModTaskKey key)
+    {
+        EnsureOwner();
+        if (string.IsNullOrWhiteSpace(key.Namespace) || string.IsNullOrWhiteSpace(key.Path))
+        {
+            throw new ArgumentException("A fully qualified task key is required.", nameof(key));
+        }
+
+        if (_accessibleNamespaces is null || !_accessibleNamespaces.Contains(key.Namespace))
+        {
+            throw new InvalidOperationException(
+                $"Task '{key}' is not owned by this Mod or one of its declared dependencies.");
         }
     }
 
