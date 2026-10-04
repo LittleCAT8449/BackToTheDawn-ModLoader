@@ -14,7 +14,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "dev.backtothedawn.loader";
     public const string PluginName = "Back To The Dawn Mod Loader";
-    public const string PluginVersion = "0.1.0";
+    public const string PluginVersion = "0.2.0";
 
     private ConfigEntry<bool>? _enabled;
     private ConfigEntry<bool>? _showOverlay;

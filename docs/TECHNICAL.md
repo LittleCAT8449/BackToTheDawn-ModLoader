@@ -1,6 +1,6 @@
 # Back To The Dawn Mod Loader — Technical Reference
 
-本文档对应加载器 `0.1.0`，面向加载器维护者和 Mod 作者。
+本文档对应加载器 `0.2.0`，面向加载器维护者和 Mod 作者。
 
 游戏系统、数据模型和解包证据的完整分析见 [`GAME_SYSTEMS.md`](GAME_SYSTEMS.md)；静态物品 ID 与 `c_item` 字段目录见 [`ITEM_CATALOG.md`](ITEM_CATALOG.md)。
 
