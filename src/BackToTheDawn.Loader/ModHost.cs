@@ -113,9 +113,9 @@ internal sealed class ModHost
         try
         {
             Assembly? assembly = null;
-            if (descriptor.Manifest.IsJsonPhoneMod)
+            if (descriptor.Manifest.IsJsonDataMod)
             {
-                instance = new JsonPhoneMod();
+                instance = new JsonDataMod();
             }
             else
             {
@@ -150,7 +150,7 @@ internal sealed class ModHost
                     "Defaults will be used.");
             }
 
-            context = descriptor.Manifest.IsJsonPhoneMod
+            context = descriptor.Manifest.IsJsonDataMod
                 ? ModContext.FromDirectory(descriptor.DirectoryPath, descriptor.Manifest, logger, config)
                 : ModContext.FromAssembly(assembly!, descriptor.Manifest, logger, config);
             context.Resources.AttachAssetBundleProvider(new RuntimeModAssetBundles(logger));
@@ -159,10 +159,10 @@ internal sealed class ModHost
             _loadedMods.Add(new LoadedMod(descriptor, instance, context));
             Plugin.Logger?.LogInfo(
                 $"[ModHost] Initialized {descriptor.Manifest.Id} " +
-                $"using {(descriptor.Manifest.IsJsonPhoneMod ? "JSON phone data" : descriptor.Manifest.EntryType)} " +
+                $"using {(descriptor.Manifest.IsJsonDataMod ? "JSON data" : descriptor.Manifest.EntryType)} " +
                 $"in {stopwatch.ElapsedMilliseconds} ms.");
             GameEvents.RaiseModInitialized(descriptor,
-                descriptor.Manifest.IsJsonPhoneMod ? nameof(JsonPhoneMod) : descriptor.Manifest.EntryType);
+                descriptor.Manifest.IsJsonDataMod ? nameof(JsonDataMod) : descriptor.Manifest.EntryType);
             return true;
         }
         catch (Exception exception)

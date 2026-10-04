@@ -32,7 +32,7 @@ internal static class ModRegistryScanner
                 {
                     var isJsonManifest = string.Equals(Path.GetFileName(manifestPath),
                         "Manifest.json", StringComparison.OrdinalIgnoreCase);
-                    manifest = isJsonManifest ? JsonPhoneMod.LoadManifest(manifestPath) : ModManifest.Load(manifestPath);
+                    manifest = isJsonManifest ? JsonDataMod.LoadManifest(manifestPath) : ModManifest.Load(manifestPath);
                     if (manifest is null)
                     {
                         continue;
@@ -42,10 +42,10 @@ internal static class ModRegistryScanner
                     {
                         throw new InvalidDataException("A Mod directory must use either mod.json or Manifest.json, not both.");
                     }
-                    var assemblyPath = manifest.IsJsonPhoneMod
+                    var assemblyPath = manifest.IsJsonDataMod
                         ? string.Empty
                         : Path.Combine(directoryPath, manifest.EntryAssembly);
-                    if (!manifest.IsJsonPhoneMod && !File.Exists(assemblyPath))
+                    if (!manifest.IsJsonDataMod && !File.Exists(assemblyPath))
                     {
                         Reject(
                             rejected,
@@ -58,7 +58,7 @@ internal static class ModRegistryScanner
                     var descriptor = new ModDescriptor(
                         manifest,
                         Path.GetFullPath(directoryPath),
-                        manifest.IsJsonPhoneMod ? string.Empty : Path.GetFullPath(assemblyPath));
+                        manifest.IsJsonDataMod ? string.Empty : Path.GetFullPath(assemblyPath));
 
                     if (!candidatesById.TryAdd(manifest.Id, descriptor))
                     {
@@ -72,7 +72,7 @@ internal static class ModRegistryScanner
 
                     Plugin.Logger?.LogInfo(
                         $"[ModRegistry] Manifest discovered: {manifest.Id} v{manifest.Version} " +
-                        $"({(manifest.IsJsonPhoneMod ? "JSON phone Mod" : manifest.EntryAssembly)}).");
+                        $"({(manifest.IsJsonDataMod ? DescribeJsonMod(manifest) : manifest.EntryAssembly)}).");
                 }
                 catch (Exception exception)
                 {
@@ -170,6 +170,14 @@ internal static class ModRegistryScanner
         string reason)
     {
         rejected.Add(new ModRejectedEvent(Path.GetFullPath(directoryPath), modId, reason));
+    }
+
+    private static string DescribeJsonMod(ModManifest manifest)
+    {
+        var types = new List<string>();
+        if (manifest.IsJsonPhoneMod) types.Add("phone");
+        if (manifest.IsJsonShopMod) types.Add("shop");
+        return $"JSON {string.Join(" + ", types)} Mod";
     }
 }
 

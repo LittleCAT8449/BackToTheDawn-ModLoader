@@ -82,7 +82,16 @@ BepInEx/mods/YourPhoneMod/
     └── 模组图片等资源
 ```
 
-`resource` 是否需要取决于模组。一个模组目录使用一种清单：C# 模组用 `mod.json`，JSON 电话模组用 `Manifest.json`。
+### JSON 商店模组
+
+```text
+BepInEx/mods/YourShopMod/
+├── Manifest.json
+└── shops/
+    └── night-market.json
+```
+
+`resource` 是否需要取决于模组。一个模组目录使用一种清单：C# 模组用 `mod.json`，JSON 电话或商店模组用 `Manifest.json`。JSON 模组的格式分别见 [电话 JSON](PHONE_JSON.md) 与 [商店 JSON](SHOP_JSON.md)。
 
 重新启动游戏后生效。号码和玩法以模组作者的说明为准。
 

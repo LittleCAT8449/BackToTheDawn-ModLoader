@@ -13,6 +13,8 @@ var shops = ShopApi.For(context);
 
 使用模组清单 ID 作为新商店的命名空间。API 调用返回 `ShopMutationResult`；`Scheduled` 表示请求已接受，Loader 会等游戏商品目录就绪后再写入运行时商店表。应用失败的原因会写入 `BepInEx/LogOutput.log`。
 
+游戏物品的完整 `ItemKey` 列表见 [游戏物品键表](ITEM_KEYS.md)。
+
 ## 注册新商店并打开原生 UI
 
 商店商品必须是游戏目录中已有的物品，或已由 Mod 注册并成功注入运行时的物品。
@@ -42,6 +44,8 @@ if (!opened.Succeeded)
 `Stock` 默认 `int.MaxValue`，即非常大的可购买库存。新商店使用现金价格和普通商店商品行；它不会自动添加 NPC、地图交互点或电话入口，模组需要在自己的交互流程中调用 `OpenShop`。
 
 通过 `RegisterShop` 创建的新商店在确认购买后，会调用 `ModApi.Inventory.TryAdd` 把购买数量放进口袋，并通过游戏的现金接口扣除总价；只有物品完整发放且扣款核对成功后才会减少商店库存。口袋空间、库存或现金校验失败时不会完成购买。已有原生商店仍由游戏自己的购买流程结算。
+
+如果只需要用数据文件注册新商店，可以使用 [JSON 商店模组格式](SHOP_JSON.md)。JSON 模式可注册商店和商品，但不会创建 NPC、地图交互点或按钮；打开界面仍需由 C# 模组调用 `ShopApi.OpenShop`。
 
 ## 修改已有商店
 

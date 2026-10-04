@@ -61,7 +61,7 @@ using BackToTheDawn.ModAPI;
 
 ## Mod 清单与运行时上下文
 
-纯 JSON 电话模组使用 `Manifest.json` 声明 `namespace` 和 `isPhoneMod`，无需入口 DLL，格式见 [JSON 电话模组](PHONE_JSON.md)。它们进入同一发现、依赖排序与卸载流程；`ModManifest.IsJsonPhoneMod` 可用于识别，描述符的 `AssemblyPath` 为空，运行上下文由 `ModContext.FromDirectory` 创建。
+纯 JSON 电话或商店模组使用 `Manifest.json` 声明 `namespace`，并通过 `isPhoneMod`、`isShopMod` 启用对应数据扫描，无需入口 DLL，格式见 [JSON 电话模组](PHONE_JSON.md) 和 [JSON 商店模组](SHOP_JSON.md)。同一清单可以同时启用两者。它们进入同一发现、依赖排序与卸载流程；`ModManifest.IsJsonPhoneMod` 和 `IsJsonShopMod` 可用于识别，描述符的 `AssemblyPath` 为空，运行上下文由 `ModContext.FromDirectory` 创建。
 
 DLL Mod 根目录应包含一个 `mod.json`：
 

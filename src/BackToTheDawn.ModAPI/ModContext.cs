@@ -19,6 +19,14 @@ public sealed record ModManifest(
     [JsonIgnore]
     public bool IsJsonPhoneMod { get; internal init; }
 
+    /// <summary>True for a data-only shop Mod discovered through Manifest.json.</summary>
+    [JsonIgnore]
+    public bool IsJsonShopMod { get; internal init; }
+
+    /// <summary>True when this Mod uses a data-only JSON entry point.</summary>
+    [JsonIgnore]
+    public bool IsJsonDataMod => IsJsonPhoneMod || IsJsonShopMod;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -69,14 +77,14 @@ public sealed record ModManifest(
             throw new InvalidDataException("Mod manifest field 'version' is required.");
         }
 
-        if (!IsJsonPhoneMod && (string.IsNullOrWhiteSpace(EntryAssembly) ||
+        if (!IsJsonDataMod && (string.IsNullOrWhiteSpace(EntryAssembly) ||
             !string.Equals(Path.GetFileName(EntryAssembly), EntryAssembly, StringComparison.Ordinal)))
         {
             throw new InvalidDataException(
                 "Mod manifest field 'entryAssembly' must contain only an assembly file name.");
         }
 
-        if (!IsJsonPhoneMod && string.IsNullOrWhiteSpace(EntryType))
+        if (!IsJsonDataMod && string.IsNullOrWhiteSpace(EntryType))
         {
             throw new InvalidDataException("Mod manifest field 'entryType' is required.");
         }
@@ -96,7 +104,7 @@ public sealed record ModDescriptor(
     string DirectoryPath,
     string AssemblyPath)
 {
-    // AssemblyPath is empty for data-only JSON phone Mods.
+    // AssemblyPath is empty for data-only JSON Mods.
     public string ResourceDirectory => Path.Combine(DirectoryPath, "resource");
 }
 

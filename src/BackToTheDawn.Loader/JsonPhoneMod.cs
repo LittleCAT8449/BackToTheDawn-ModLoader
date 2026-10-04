@@ -19,18 +19,21 @@ internal sealed class JsonPhoneMod : IMod
     {
         var document = JsonSerializer.Deserialize<ManifestDocument>(File.ReadAllText(path), JsonOptions)
             ?? throw new InvalidDataException("Manifest.json must contain an object.");
-        if (document.IsPhoneMod is null)
+        if (document.IsPhoneMod is null && document.IsShopMod is null)
         {
-            throw new InvalidDataException("Manifest.json requires the boolean field 'isPhoneMod'.");
+            throw new InvalidDataException(
+                "Manifest.json requires at least one boolean field: 'isPhoneMod' or 'isShopMod'.");
         }
-        if (!document.IsPhoneMod.Value)
+        var isPhoneMod = document.IsPhoneMod == true;
+        var isShopMod = document.IsShopMod == true;
+        if (!isPhoneMod && !isShopMod)
         {
-            Plugin.Logger?.LogInfo($"[JsonPhoneMod] Skipping non-phone Manifest.json: '{path}'.");
+            Plugin.Logger?.LogInfo($"[JsonPhoneMod] Skipping inactive JSON Manifest.json: '{path}'.");
             return null;
         }
         if (document.SchemaVersion != 1)
         {
-            throw new InvalidDataException($"Unsupported phone manifest schemaVersion {document.SchemaVersion}.");
+            throw new InvalidDataException($"Unsupported JSON Mod manifest schemaVersion {document.SchemaVersion}.");
         }
         var ownerId = document.Namespace?.Trim();
         if (string.IsNullOrWhiteSpace(ownerId) || !IsAsciiLetterOrDigit(ownerId[0]) ||
@@ -46,7 +49,8 @@ internal sealed class JsonPhoneMod : IMod
         var manifest = new ModManifest(ownerId, document.Name?.Trim() ?? ownerId,
             document.Version?.Trim() ?? "1.0.0", string.Empty, string.Empty, document.Dependencies)
         {
-            IsJsonPhoneMod = true,
+            IsJsonPhoneMod = isPhoneMod,
+            IsJsonShopMod = isShopMod,
         };
         manifest.Validate();
         return manifest;
@@ -251,6 +255,7 @@ internal sealed class JsonPhoneMod : IMod
         [JsonPropertyName("namespace")]
         public string? Namespace { get; init; }
         public bool? IsPhoneMod { get; init; }
+        public bool? IsShopMod { get; init; }
         public string? Name { get; init; }
         public string? Version { get; init; }
         public string[]? Dependencies { get; init; } = Array.Empty<string>();

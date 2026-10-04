@@ -15,11 +15,35 @@ internal static class ItemCatalogBootstrap
             bindings.Add((new ItemKey(GameNamespace, ToPath(entry.Name)), entry.Id));
         }
 
+        var mappedIds = bindings.Select(binding => binding.Id).ToHashSet();
+        var registeredKeys = bindings.Select(binding => binding.Key.ToString())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in ItemReadableNames.Entries)
+        {
+            if (!mappedIds.Add(entry.Id))
+            {
+                throw new InvalidOperationException(
+                    $"Readable item key '{entry.Path}' duplicates an existing ItemID mapping for {entry.Id}.");
+            }
+
+            var readableKey = new ItemKey(GameNamespace, entry.Path);
+            var legacyKey = new ItemKey(GameNamespace, "item_" + entry.Id);
+            if (!registeredKeys.Add(readableKey.ToString()) ||
+                !registeredKeys.Add(legacyKey.ToString()))
+            {
+                throw new InvalidOperationException(
+                    $"Readable item key or legacy alias for item ID {entry.Id} is already in use.");
+            }
+
+            bindings.Add((readableKey, entry.Id));
+            bindings.Add((legacyKey, entry.Id));
+        }
+
         ItemCatalog.InitializeStatic(bindings);
         var uniqueIds = bindings.Select(binding => binding.Id).Distinct().Count();
         Plugin.Logger?.LogInfo(
             $"[ItemCatalog] Static namespace registry ready: " +
-            $"{bindings.Count} names, {uniqueIds} unique IDs.");
+            $"{bindings.Count} keys, {uniqueIds} unique IDs.");
     }
 
     private static string ToPath(string name)
