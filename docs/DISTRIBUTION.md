@@ -102,7 +102,7 @@ BepInEx/mods/YourTaskMod/
     └── repair-radio.json
 ```
 
-`resource` 是否需要取决于模组。一个模组目录使用一种清单：C# 模组用 `mod.json`，纯 JSON 电话、商店或任务模组用 `Manifest.json`。JSON 格式分别见 [电话 JSON](PHONE_JSON.md)、[商店 JSON](SHOP_JSON.md) 与 [任务 JSON](TASK_JSON.md)。
+`resource` 是否需要取决于模组。一个模组目录使用一种清单：C# 模组用 `mod.json`，纯 JSON 电话、商店或任务模组用 `Manifest.json`。JSON 格式分别见 [电话 JSON](API_REFERENCE.md#phone-api-json)、[商店 JSON](API_REFERENCE.md#shop-api-json) 与 [任务 JSON](API_REFERENCE.md#task-api-json)。
 
 重新启动游戏后生效。号码和玩法以模组作者的说明为准。
 
@@ -128,12 +128,9 @@ BepInEx/mods/YourTaskMod/
 
 ## 给模组作者
 
-C# 项目目标框架使用 `net6.0`，引用前置提供的 `BackToTheDawn.ModAPI.dll`；电话功能还需引用 `BackToTheDawn.PhoneAPI.dll`，商店注册功能还需引用 `BackToTheDawn.ShopAPI.dll`。引用设置 `Private=false`，发布自己的模组 DLL、清单和资源即可。
+C# 项目目标框架使用 net6.0，引用前置提供的 BackToTheDawn.ModAPI.dll；电话功能还需引用前置提供的 BackToTheDawn.PhoneAPI.dll，商店注册功能还需引用 BackToTheDawn.ShopAPI.dll。引用设置 Private=false，发布自己的模组 DLL、清单和资源即可。
 
-- [电话 API](PHONE_API.md)
-- [JSON 电话模组格式](PHONE_JSON.md)
-- [商店注册 API](SHOP_API.md)
-- [JSON 任务定义](TASK_JSON.md)
-- [技术与公共 API](TECHNICAL.md)
+- [API 参考：C# 与 JSON 接口](API_REFERENCE.md)
+- [技术文档：Hook、配置与兼容性](TECHNICAL.md)
 
 开发工作区执行 `scripts/Pack-Release.ps1` 可生成前置分享包。默认构建 Release；`-SkipBuild` 可用已有 DLL 重新打包文档。安装包不包含游戏文件、存档、个人配置、日志或生成的 interop 文件。

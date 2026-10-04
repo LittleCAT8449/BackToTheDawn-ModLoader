@@ -9,8 +9,5 @@
 ## 文档
 
 - [安装说明](docs/DISTRIBUTION.md)
-- [电话 API](docs/PHONE_API.md)
-- [商店 API](docs/SHOP_API.md)
-- [任务与公共 API](docs/TECHNICAL.md#task-api-任务查询与注册)
-- [物品 ID 与键名列表](docs/ITEM_KEYS.md)
+- [API 参考：ModAPI、PhoneAPI、ShopAPI 与 JSON](docs/API_REFERENCE.md)
 - [技术文档](docs/TECHNICAL.md)

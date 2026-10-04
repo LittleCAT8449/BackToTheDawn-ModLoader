@@ -1,6 +1,6 @@
 # Back To The Dawn 交易与经济 API 需求清单
 
-商店专项拆分和当前完成度见 [`SHOP_API_STATUS.md`](SHOP_API_STATUS.md)。
+商店专项拆分和当前完成度见 [商店 API 状态与目录](API_REFERENCE.md#shop-api-status)。
 
 > 状态：Draft v0.1  
 > 目标：把游戏中不同的买卖、交换、赠送、生产和金融行为统一成稳定的 Mod API。  
