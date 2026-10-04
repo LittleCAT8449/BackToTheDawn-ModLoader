@@ -9,6 +9,7 @@ internal static class GameContextAdapter
     private static int? _lastPublishedMapId;
     private static string? _lastPublishedMapName;
     private static PlayerSnapshot? _lastPublishedPlayer;
+    private static string? _lastTaskSnapshotError;
     private static readonly HashSet<string> ObservedPlayerHookSources = new();
     private static readonly object PendingItemUseSync = new();
     private static readonly Dictionary<string, Stack<ItemUseInvocationState>> PendingItemUses =
@@ -53,6 +54,157 @@ internal static class GameContextAdapter
         {
             Plugin.Logger?.LogError($"[Inventory] Failed to capture snapshot: {exception}");
             return null;
+        }
+    }
+
+    internal static IReadOnlyList<TaskSnapshot> CaptureActiveTasks()
+    {
+        if (!IsGameplayReady)
+        {
+            return Array.Empty<TaskSnapshot>();
+        }
+
+        try
+        {
+            return CaptureTasks(TaskManage.GetAllAcceptTaskList());
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger?.LogError($"[Tasks] Failed to capture active tasks: {exception}");
+            return Array.Empty<TaskSnapshot>();
+        }
+    }
+
+    internal static IReadOnlyList<TaskSnapshot> CaptureAllTasks()
+    {
+        return TryCaptureAllTasks(out var tasks)
+            ? tasks
+            : Array.Empty<TaskSnapshot>();
+    }
+
+    internal static bool TryCaptureAllTasks(out IReadOnlyList<TaskSnapshot> tasks)
+    {
+        tasks = Array.Empty<TaskSnapshot>();
+        if (!IsGameplayReady)
+        {
+            return false;
+        }
+
+        try
+        {
+            tasks = CaptureTasks(TaskManage.GetAllAcceptHistoryTaskList());
+            _lastTaskSnapshotError = null;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            var error = $"{exception.GetType().FullName}: {exception.Message}";
+            if (!string.Equals(_lastTaskSnapshotError, error, StringComparison.Ordinal))
+            {
+                Plugin.Logger?.LogError($"[Tasks] Failed to capture task journal: {exception}");
+                _lastTaskSnapshotError = error;
+            }
+
+            return false;
+        }
+    }
+
+    internal static TaskSnapshot? CaptureTaskSnapshot(TaskDetail? task)
+    {
+        if (!IsGameplayReady || task is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var taskId = task.taskId;
+            var targets = new List<TaskTargetSnapshot>();
+            var nativeTargets = task.targetList;
+            if (nativeTargets is not null)
+            {
+                for (var index = 0; index < nativeTargets.Count; index++)
+                {
+                    var target = nativeTargets[index];
+                    if (target is null)
+                    {
+                        continue;
+                    }
+
+                    var targetConfig = target.GetConfig();
+                    var targetType = targetConfig is null
+                        ? string.Empty
+                        : TaskRuntime.IsManualObjectiveTask(taskId)
+                            ? "Manual"
+                            : ((TaskTargetType)targetConfig.task_target_type).ToString();
+                    var description = targetConfig is null
+                        ? string.Empty
+                        : ResolveTaskText(targetConfig.L_target_des);
+
+                    targets.Add(new TaskTargetSnapshot(
+                        target.indexId,
+                        targetType,
+                        description,
+                        target.isFinish,
+                        target.finishTime));
+                }
+            }
+
+            return new TaskSnapshot(
+                taskId,
+                TaskManage.GetTaskName(taskId) ?? string.Empty,
+                TaskRuntime.GetTaskTypeName(taskId, (int)task.GetTaskMainType()),
+                task.startDay,
+                task.IsFinished(),
+                task.IsToBeCompleted(),
+                task.isFailed,
+                task.isGiveUp,
+                task.isTimeOut,
+                task.isDiscontinue,
+                Array.AsReadOnly(targets.ToArray()));
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger?.LogError($"[Tasks] Failed to capture task snapshot: {exception}");
+            return null;
+        }
+    }
+
+    private static IReadOnlyList<TaskSnapshot> CaptureTasks(
+        Il2CppSystem.Collections.Generic.List<TaskDetail>? nativeTasks)
+    {
+        if (nativeTasks is null || nativeTasks.Count == 0)
+        {
+            return Array.Empty<TaskSnapshot>();
+        }
+
+        var tasks = new List<TaskSnapshot>(nativeTasks.Count);
+        for (var index = 0; index < nativeTasks.Count; index++)
+        {
+            var snapshot = CaptureTaskSnapshot(nativeTasks[index]);
+            if (snapshot is not null)
+            {
+                tasks.Add(snapshot);
+            }
+        }
+
+        return Array.AsReadOnly(tasks.ToArray());
+    }
+
+    private static string ResolveTaskText(string? key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            return LanguageData.GetLanguage(key, true) ?? key;
+        }
+        catch
+        {
+            return key;
         }
     }
 
@@ -1090,7 +1242,9 @@ internal static class GameContextAdapter
 
     internal static void Reset()
     {
+        TaskEventMonitor.Reset();
         IsGameplayReady = false;
+        _lastTaskSnapshotError = null;
         _lastPublishedTime = null;
         _lastPublishedMapId = null;
         _lastPublishedMapName = null;

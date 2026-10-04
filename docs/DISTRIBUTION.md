@@ -52,7 +52,7 @@
 进入主菜单后，打开游戏目录中的 `BepInEx/LogOutput.log`。看到类似下面这一行，表示前置加载成功：
 
 ```text
-Back To The Dawn Mod Loader v0.2.0 loaded successfully.
+Back To The Dawn Mod Loader v0.3.0 loaded successfully.
 ```
 
 版本号会随前置版本变化。

@@ -524,7 +524,11 @@ BuyLunch, ClearSomeBuff, ThrowDiceSuccess, Surrender, UrgeDebt
 
 当前 `TaskMainID` 中可见的主要标识包括 `DangerousKnowledge`、`MintMonopoly`、`ShacklesOfFate`、`ShengSiShiSu`、`StinkingRoad` 和若干 `Task####`。这些是内部 ID，不要在没有文本表或运行时映射的情况下直接当作中文任务名。
 
-任务系统很可能通过目标完成检查读取地图、物品、关系、工作和时间。因此 Mod 的任务事件最好在 `TaskTargetManage` 的完成/刷新入口聚合，而不是分别监听每一种条件。
+任务查询使用 `TaskManage.GetAllAcceptTaskList` / `GetAllAcceptHistoryTaskList` 生成脱离游戏对象的只读快照。Loader 在 GameplayReady 时记录基准，并在 Unity 主线程每约 0.2 秒比对任务日志；新记录触发 `TaskAcceptedEvent`，已有记录的目标或状态变化触发 `TaskUpdatedEvent`，包括放弃、失败、超时和中止。首次读档时已有的任务会进入基准，不会重复作为新领取事件上报。
+
+代码模组可通过 `TaskApi.For(context).Register(...)` 将任务和手动目标注入原生任务配置表，再用 `Accept(id)` 接取、`CompleteObjective(id, objectiveId)` 完成目标。手动目标使用游戏支持的不可达地图目标作为原生显示占位，由模组自行判定何时完成。任务会进入原生任务日志，但当前不自动创建 NPC/电话发布入口，也不自动判断目标条件；使用该任务的存档需要保留注册它的模组。
+
+任务分类支持囚犯、主线、帮派（也可细分为大脚帮、黑爪帮、尖牙帮）、理发店、队长、邮件室、支线和越狱。原版支线任务使用原生类型 8；Loader 的 `Side` 分类也映射到类型 8，以便和原版任务共用标题栏，因此会和 `PrisonGuardMailRoom` 分类显示在同一组。原生类型 0 虽然显示同样的“支线”文字，但属于不同标题对象。类型 9 映射到“越狱”，10 映射到旧主线标题；类型 3、4、5 共用帮派分类。
 
 ### 10.2 对话和关系
 
@@ -656,7 +660,7 @@ ModDiscoveredEvent / ModRegistryReadyEvent / ModInitializedEvent / ModShutdownEv
 | 技能 | `CharacterSkill`、`c_skill` | 技能学习/经验变化 | 待验证 |
 | Buff | `CharacterBuffManage`、`c_fight_buff` | Buff 添加/移除/过期 | 待验证 |
 | 战斗 | `BattleManage`、`BattleDamage` | 战斗/回合/伤害/结束 | 待验证 |
-| 任务 | `TaskManage`、`TaskTargetManage` | 任务开始/目标完成/奖励 | 待验证 |
+| 任务 | `TaskManage`、`TaskDetail`、`TaskTargetManage` | `TaskAccepted`、`TaskUpdated`、任务快照与代码注册 | 已实现快照、生命周期监听、原生任务表注入和手动目标完成；游戏内验证、奖励领取及 NPC/电话发布入口待验证 |
 | 对话 | `TalkManage`、`TalkAction` | 对话开始/选项/结束 | 待验证 |
 | 关系 | `RelationshipManage`、`CharacterOpinion` | 关系变化 | 待验证 |
 | 帮派 | `GangManage`、`GangShop` | 加入/贡献/商店交易 | 待验证 |

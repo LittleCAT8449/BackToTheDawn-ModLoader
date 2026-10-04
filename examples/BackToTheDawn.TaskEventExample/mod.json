@@ -1,0 +1,10 @@
+{
+  "id": "dev.backtothedawn.taskeventexample",
+  "name": "Back To The Dawn Task Event Example",
+  "version": "0.1.0",
+  "entryAssembly": "BackToTheDawn.TaskEventExample.dll",
+  "entryType": "BackToTheDawn.TaskEventExample.TaskEventExampleMod",
+  "dependencies": [
+    "dev.backtothedawn.loader"
+  ]
+}

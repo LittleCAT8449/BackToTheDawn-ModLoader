@@ -16,6 +16,9 @@ public static class ModApi
 
     public static InventoryApi Inventory { get; } = new();
 
+    /// <summary>Task journal queries; use TaskApi.For(context) to register Mod tasks.</summary>
+    public static TaskApi Tasks { get; } = new();
+
     /// <summary>Read-only shop catalog access retained in the core API.</summary>
     public static ShopApi Shops { get; } = new();
 

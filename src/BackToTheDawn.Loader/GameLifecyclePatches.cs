@@ -3,12 +3,19 @@ using BackToTheDawn.ModAPI;
 
 namespace BackToTheDawn.Loader;
 
+[HarmonyPatch(typeof(ConfigData), nameof(ConfigData.InitConfig))]
+internal static class TaskConfigInitializedPatch
+{
+    private static void Postfix() => TaskRuntime.OnConfigInitialized();
+}
+
 [HarmonyPatch(typeof(GameManage), nameof(GameManage.ShowGameStartUI))]
 internal static class ShowGameStartUiPatch
 {
     private static void Prefix(bool isShowSelectInputModel, int immediateStartArchiveId)
     {
         GameContextAdapter.IsGameplayReady = false;
+        TaskEventMonitor.Reset();
         if (immediateStartArchiveId == 0)
         {
             GameEvents.RaiseMainMenuEntered(isShowSelectInputModel, immediateStartArchiveId);
@@ -31,6 +38,7 @@ internal static class ReadArchiveDataAndStartGamePatch
         // Dispose them before MapManage.LoadWholeMap enumerates native maps.
         RoomCloneRuntime.Reset();
         GameContextAdapter.IsGameplayReady = false;
+        TaskEventMonitor.Reset();
         GameEvents.RaiseArchiveLoadStarted(archiveId);
     }
 
@@ -55,7 +63,9 @@ internal static class ShowCurrentMapAndCanControlPatch
     private static void Postfix()
     {
         GameContextAdapter.IsGameplayReady = true;
+        TaskRuntime.OnGameplayReady();
         GameContextAdapter.InitializeEventBaselines();
+        TaskEventMonitor.BeginSession();
         GameEvents.RaiseGameplayReady();
         RuntimeItemCatalog.CaptureOnce();
         var injectedCount = RuntimeItemInjection.TryInject(Plugin.RuntimeItemInjectionEnabled);

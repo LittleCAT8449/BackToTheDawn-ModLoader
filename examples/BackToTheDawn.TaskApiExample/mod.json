@@ -1,0 +1,10 @@
+{
+  "id": "dev.backtothedawn.taskapiexample",
+  "name": "Back To The Dawn Task API Example",
+  "version": "0.1.0",
+  "entryAssembly": "BackToTheDawn.TaskApiExample.dll",
+  "entryType": "BackToTheDawn.TaskApiExample.TaskApiExampleMod",
+  "dependencies": [
+    "dev.backtothedawn.loader"
+  ]
+}

@@ -14,7 +14,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "dev.backtothedawn.loader";
     public const string PluginName = "Back To The Dawn Mod Loader";
-    public const string PluginVersion = "0.2.0";
+    public const string PluginVersion = "0.3.0";
 
     private ConfigEntry<bool>? _enabled;
     private ConfigEntry<bool>? _showOverlay;
@@ -30,6 +30,7 @@ public sealed class Plugin : BasePlugin
     private LoaderConsole? _loaderConsole;
     private LotteryPrizeFlushRunner? _lotteryPrizeFlushRunner;
     private ShopGoodsScanRunner? _shopGoodsScanRunner;
+    private TaskEventMonitorRunner? _taskEventMonitorRunner;
     private ModGuiRenderer? _modGuiRenderer;
     private ModCanvasRenderer? _modCanvasRenderer;
     private PhoneConversationOverlay? _phoneConversationOverlay;
@@ -54,6 +55,9 @@ public sealed class Plugin : BasePlugin
             GameContextAdapter.CaptureInteractiveRelationship;
         GameContext.ProtagonistRelationshipProvider =
             GameContextAdapter.CaptureProtagonistRelationship;
+        TaskApi.ActiveTasksProvider = GameContextAdapter.CaptureActiveTasks;
+        TaskApi.AllTasksProvider = GameContextAdapter.CaptureAllTasks;
+        TaskRuntime.InstallProviders();
 
         _enabled = Config.Bind(
             "General",
@@ -159,6 +163,7 @@ public sealed class Plugin : BasePlugin
         _lotteryPrizeFlushRunner = AddComponent<LotteryPrizeFlushRunner>();
         ShopGoodsRuntime.ScheduleFullScan();
         _shopGoodsScanRunner = AddComponent<ShopGoodsScanRunner>();
+        _taskEventMonitorRunner = AddComponent<TaskEventMonitorRunner>();
         RoomApi.CloneProvider = RoomCloneRuntime.Register;
         RoomApi.GoToProvider = RoomCloneRuntime.GoTo;
         RoomApi.IsRegisteredProvider = RoomCloneRuntime.IsRegistered;
@@ -200,6 +205,12 @@ public sealed class Plugin : BasePlugin
             _shopGoodsScanRunner = null;
         }
 
+        if (_taskEventMonitorRunner is not null)
+        {
+            UnityEngine.Object.Destroy(_taskEventMonitorRunner);
+            _taskEventMonitorRunner = null;
+        }
+
         if (_modGuiRenderer is not null)
         {
             UnityEngine.Object.Destroy(_modGuiRenderer);
@@ -233,6 +244,9 @@ public sealed class Plugin : BasePlugin
         PhoneRuntimeProviders.Clear();
         ShopRuntime.ClearProviders();
         GameContextAdapter.Reset();
+        TaskRuntime.ClearProviders();
+        TaskRuntime.Reset();
+        TaskApi.Reset();
         RoomCloneRuntime.Reset();
         RoomApi.CloneProvider = null;
         RoomApi.GoToProvider = null;

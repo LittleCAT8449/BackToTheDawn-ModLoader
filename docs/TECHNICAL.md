@@ -1,6 +1,6 @@
 # Back To The Dawn Mod Loader — Technical Reference
 
-本文档对应加载器 `0.2.0`，面向加载器维护者和 Mod 作者。
+本文档对应加载器 `0.3.0`，面向加载器维护者和 Mod 作者。
 
 游戏系统、数据模型和解包证据的完整分析见 [`GAME_SYSTEMS.md`](GAME_SYSTEMS.md)；静态物品 ID 与 `c_item` 字段目录见 [`ITEM_CATALOG.md`](ITEM_CATALOG.md)。
 
@@ -209,7 +209,7 @@ LoaderOverlay 会显示当前有效、拒绝和已初始化的 Mod 数量。仓�
 
 ## 稳定 API
 
-`ModApi` 是推荐的统一入口，包含 `Items`、`Events` 和只读的 `Game` 服务。旧的
+`ModApi` 是推荐的统一入口，包含 `Items`、`Events`、只读快照服务 `Game` 和 `Tasks`。旧的
 `ItemRegistry`、`ItemCatalog`、`ItemIdResolver` 与 `GameEvents` 仍然保留，已有 Mod 无需迁移。
 Mod 不应依赖底层 `GameManage` 方法或自行重复安装相同 Harmony 补丁。
 
@@ -227,7 +227,7 @@ if (ModApi.Game.TryGetSnapshot(out var state) && state is not null)
 ```
 
 `ModApi.Items` 集中提供注册、目录/效果查询、行为注册，以及显式的运行时数字 ID 转换。
-`ModApi.Events.Subscribe<T>()` 返回可释放的订阅句柄；`ModApi.Game` 只返回稳定快照。
+`ModApi.Events.Subscribe<T>()` 返回可释放的订阅句柄；`ModApi.Game` 和 `ModApi.Tasks` 提供稳定快照。需要注册任务时，用 `TaskApi.For(context)` 获取该模组作用域下的写入接口。
 统一入口不改变旧静态 API 的语义，方便逐步迁移。
 
 电话 API 单独构建和部署，支持号码/新对话注册、原生选项与分支跳转、原版台词覆盖、台词和选项选择观察；使用示例见
@@ -1035,6 +1035,68 @@ public sealed record GameStateSnapshot(
 ```
 
 `GameTimeSnapshot` 包含天数、醒来日、小时、分钟和总分钟数。`PlayerSnapshot` 当前包含角色 ID、生命、心态、饱食、精力、专注、金钱和纪律/表现。
+
+## Task API 任务查询与注册
+
+`ModApi.Tasks` 提供当前活动任务、任务记录和目标快照，不暴露游戏内部 `TaskDetail` / `TaskTarget` 对象。模组还可以用 `TaskApi.For(context)` 注册自己的任务定义、通过原生任务系统接取任务，并手动完成目标。手动目标在游戏配置中使用一个不会触发的原生目标类型来显示，实际完成条件由模组代码控制。
+
+`ModTaskDefinition.Category` 支持 `Prisoner`、`Mainline`、`Gang`、`DaJiao`、`HeiZhua`、`JianYa`、`BarberShop`、`PrisonGuardCaptain`、`PrisonGuardMailRoom`、`Side` 和 `Escape`。`Gang` 会显示在游戏的帮派分类下；如果任务属于某个具体帮派，可用其专属分类。Loader 按原生 `UI_TaskListTree.GetTitleByTaskType` 映射：`Side` 使用任务类型 8，与原版支线任务共用标题栏；因此它也会和 `PrisonGuardMailRoom` 显示在同一分组。原生类型 0 虽然也显示为“支线”，但使用另一标题对象。`Escape` 使用类型 9；类型 10 显示为旧主线标题。ModAPI 的枚举值是逻辑分类标识，不是原生任务类型数字。
+
+```csharp
+var activeTasks = ModApi.Tasks.ActiveTasks;
+foreach (var task in activeTasks)
+{
+    context.Logger.Info(
+        $"{task.Id} {task.Name}: {task.CompletedTargetCount}/{task.Targets.Count}");
+}
+
+_subscriptions.Add(ModApi.Events.Subscribe<TaskAcceptedEvent>(info =>
+    context.Logger.Info($"Task accepted: {info.Task.Id} {info.Task.Name}")));
+
+_subscriptions.Add(ModApi.Events.Subscribe<TaskUpdatedEvent>(info =>
+    context.Logger.Info(
+        $"Task {info.Current.Id} changed ({info.Source}): " +
+        $"{info.Current.CompletedTargetCount}/{info.Current.Targets.Count}")));
+```
+
+`ActiveTasks` 仅包含当前活动任务；`AllTasks` 返回任务日志中的所有记录，`GetTasks(id)` 可查询同一任务 ID 的多个记录，`TryGetTask(id, out task)` 用于便捷查询。快照包含任务名称、任务类型名、开始日、完成/失败/放弃/超时状态，以及目标类型、描述和完成状态。Loader 在 `GameplayReady` 时建立任务日志基准，之后在 Unity 主线程每约 0.2 秒读取一次快照：新增记录触发 `TaskAcceptedEvent`，已有记录变化触发 `TaskUpdatedEvent`，其 `Source` 会标记 `give-up`、`target-progress` 等变化类型。首次读档恢复的任务进入初始基准，不作为“新领取”事件重复上报。
+
+```csharp
+var tasks = TaskApi.For(context);
+var registration = tasks.Register(new ModTaskDefinition(
+    "repair-radio",
+    "修理收音机",
+    "找到零件并修好收音机。",
+    new[]
+    {
+        new ModTaskObjective("find-parts", "收集修理需要的零件。"),
+        new ModTaskObjective("repair", "完成收音机修理。"),
+    })
+{
+    Category = ModTaskCategory.Prisoner,
+});
+
+if (!registration.Succeeded)
+{
+    context.Logger.Error(registration.Message);
+}
+
+// 在模组自己的条件满足时调用；这里只用 GameplayReady 演示接取。
+_subscriptions.Add(ModApi.Events.Subscribe<GameplayReadyEvent>(_ =>
+{
+    var result = tasks.Accept("repair-radio");
+    context.Logger.Info(result.Message);
+}));
+
+// 在模组自己的条件处理回调里调用。
+void OnPartsCollected() =>
+    tasks.CompleteObjective("repair-radio", "find-parts");
+
+void OnRadioRepaired() =>
+    tasks.CompleteObjective("repair-radio", "repair");
+```
+
+任务定义会注入游戏原生任务配置表，因此接取后显示在游戏任务日志中。当前版本不自动创建 NPC 或电话任务入口，也不替模组判断目标条件；模组需要在自己的事件或剧情条件满足时调用 `Accept` 和 `CompleteObjective`。任务记录会保存在存档中，使用该任务的存档需要保留注册它的模组。
 
 ## 使用示例
 

@@ -9,6 +9,10 @@ param(
 
     [switch]$IncludeAssetBundleProbe,
 
+    [switch]$IncludeTaskEventExample,
+
+    [switch]$IncludeTaskApiExample,
+
     [switch]$SkipExampleMod
 )
 
@@ -26,6 +30,12 @@ $apiOutputDll = Join-Path $rootDirectory "src\BackToTheDawn.ModAPI\bin\$Configur
 $phoneApiOutputDll = Join-Path $rootDirectory "src\BackToTheDawn.PhoneAPI\bin\$Configuration\net6.0\BackToTheDawn.PhoneAPI.dll"
 $shopApiOutputDll = Join-Path $rootDirectory "src\BackToTheDawn.ShopAPI\bin\$Configuration\net6.0\BackToTheDawn.ShopAPI.dll"
 $exampleOutputDll = Join-Path $rootDirectory "examples\BackToTheDawn.ExampleMod\bin\$Configuration\net6.0\BackToTheDawn.ExampleMod.dll"
+$taskEventExampleDirectory = Join-Path $rootDirectory "examples\BackToTheDawn.TaskEventExample"
+$taskEventExampleDeployDirectory = Join-Path $GameDirectory "BepInEx\mods\BackToTheDawn.TaskEventExample"
+$taskEventExampleOutputDll = Join-Path $taskEventExampleDirectory "bin\$Configuration\net6.0\BackToTheDawn.TaskEventExample.dll"
+$taskApiExampleDirectory = Join-Path $rootDirectory "examples\BackToTheDawn.TaskApiExample"
+$taskApiExampleDeployDirectory = Join-Path $GameDirectory "BepInEx\mods\BackToTheDawn.TaskApiExample"
+$taskApiExampleOutputDll = Join-Path $taskApiExampleDirectory "bin\$Configuration\net6.0\BackToTheDawn.TaskApiExample.dll"
 $lifecycleTestRoot = Join-Path $rootDirectory "tests"
 $dependencyTestProject = Join-Path $lifecycleTestRoot "BackToTheDawn.DependencyMod\BackToTheDawn.DependencyMod.csproj"
 $failingTestProject = Join-Path $lifecycleTestRoot "BackToTheDawn.FailingMod\BackToTheDawn.FailingMod.csproj"
@@ -102,6 +112,26 @@ if (-not $SkipExampleMod) {
     if (Test-Path -LiteralPath $legacyExamplePluginDirectory) {
         Write-Warning "Legacy ExampleMod directory still exists at '$legacyExamplePluginDirectory'. Remove or move it to avoid duplicate discovery."
     }
+}
+
+if ($IncludeTaskEventExample) {
+    New-Item -ItemType Directory -Path $taskEventExampleDeployDirectory -Force | Out-Null
+    Copy-Item -LiteralPath `
+        $taskEventExampleOutputDll, `
+        (Join-Path $taskEventExampleDirectory "mod.json"), `
+        (Join-Path $taskEventExampleDirectory "README.md") `
+        -Destination $taskEventExampleDeployDirectory -Force
+    Write-Host "Deployed Task Event Example Mod to $taskEventExampleDeployDirectory"
+}
+
+if ($IncludeTaskApiExample) {
+    New-Item -ItemType Directory -Path $taskApiExampleDeployDirectory -Force | Out-Null
+    Copy-Item -LiteralPath `
+        $taskApiExampleOutputDll, `
+        (Join-Path $taskApiExampleDirectory "mod.json"), `
+        (Join-Path $taskApiExampleDirectory "README.md") `
+        -Destination $taskApiExampleDeployDirectory -Force
+    Write-Host "Deployed Task API Example Mod to $taskApiExampleDeployDirectory"
 }
 
 if ($IncludeLifecycleTests) {

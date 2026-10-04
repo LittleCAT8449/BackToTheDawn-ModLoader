@@ -13,6 +13,8 @@ public static class GameEvents
     public static event Action<ItemCatalogReadyEvent>? ItemCatalogReady;
     public static event Action<ItemRuntimeReadyEvent>? ItemRuntimeReady;
     public static event Action<TimeChangedEvent>? TimeChanged;
+    public static event Action<TaskAcceptedEvent>? TaskAccepted;
+    public static event Action<TaskUpdatedEvent>? TaskUpdated;
     public static event Action<MapChangedEvent>? MapChanged;
     public static event Action<RoomChangedEvent>? RoomChanged;
     public static event Action<PlayerStateChangedEvent>? PlayerStateChanged;
@@ -107,6 +109,22 @@ public static class GameEvents
                 handler((TEvent)(object)value);
             TimeChanged += wrapper;
             return new Subscription(() => TimeChanged -= wrapper);
+        }
+
+        if (typeof(TEvent) == typeof(TaskAcceptedEvent))
+        {
+            Action<TaskAcceptedEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            TaskAccepted += wrapper;
+            return new Subscription(() => TaskAccepted -= wrapper);
+        }
+
+        if (typeof(TEvent) == typeof(TaskUpdatedEvent))
+        {
+            Action<TaskUpdatedEvent> wrapper = value =>
+                handler((TEvent)(object)value);
+            TaskUpdated += wrapper;
+            return new Subscription(() => TaskUpdated -= wrapper);
         }
 
         if (typeof(TEvent) == typeof(MapChangedEvent))
@@ -327,6 +345,18 @@ public static class GameEvents
     internal static void RaiseTimeChanged(GameTimeSnapshot previous, GameTimeSnapshot current) =>
         Raise(TimeChanged, new TimeChangedEvent(previous, current), nameof(TimeChanged));
 
+    internal static void RaiseTaskAccepted(TaskSnapshot task) =>
+        Raise(TaskAccepted, new TaskAcceptedEvent(task), nameof(TaskAccepted));
+
+    internal static void RaiseTaskUpdated(
+        TaskSnapshot previous,
+        TaskSnapshot current,
+        string source) =>
+        Raise(
+            TaskUpdated,
+            new TaskUpdatedEvent(previous, current, source),
+            nameof(TaskUpdated));
+
     internal static void RaiseMapChanged(int previousMapId, int currentMapId, string currentMapName) =>
         Raise(
             MapChanged,
@@ -494,6 +524,8 @@ public static class GameEvents
         ItemCatalogReady = null;
         ItemRuntimeReady = null;
         TimeChanged = null;
+        TaskAccepted = null;
+        TaskUpdated = null;
         MapChanged = null;
         RoomChanged = null;
         PlayerStateChanged = null;
@@ -593,6 +625,15 @@ public sealed record ArchiveLoadInvocationReturnedEvent(int ArchiveId) : IGameEv
 public sealed record GameplayReadyEvent : IGameEvent;
 
 public sealed record TimeChangedEvent(GameTimeSnapshot Previous, GameTimeSnapshot Current) : IGameEvent;
+
+/// <summary>Raised when a new task record is added during gameplay.</summary>
+public sealed record TaskAcceptedEvent(TaskSnapshot Task) : IGameEvent;
+
+/// <summary>Raised when a task's objective or lifecycle state changes.</summary>
+public sealed record TaskUpdatedEvent(
+    TaskSnapshot Previous,
+    TaskSnapshot Current,
+    string Source) : IGameEvent;
 
 public sealed record MapChangedEvent(int PreviousMapId, int CurrentMapId, string CurrentMapName) : IGameEvent;
 
