@@ -57,6 +57,7 @@ internal static partial class PhoneRuntime
     private static bool _nativePhoneCallActive;
     private static bool _nativeActionProcessSuspended;
     private static bool _resumeNativeActionProcessAfterHangUp;
+    private static bool _nativePhoneEndAnimationActive;
     private static int _deferredNativeActionAdvanceCount;
     private static bool _nativeDialogueDisplayed;
     private static NativeDialogueTarget? _activeNativeDialogueTarget;
@@ -361,6 +362,7 @@ internal static partial class PhoneRuntime
         _activeCall = new ActiveCall(phone, conversation);
         _nativeActionProcessSuspended = false;
         _resumeNativeActionProcessAfterHangUp = false;
+        _nativePhoneEndAnimationActive = false;
         _deferredNativeActionAdvanceCount = 0;
         _activeLineIndex = 0;
         _nativeDialogueDisplayed = false;
@@ -419,7 +421,11 @@ internal static partial class PhoneRuntime
     internal static bool HasActiveCall => _activeCall is not null;
 
     internal static bool ShouldDeferNativeActionProgress =>
-        _nativeActionProcessSuspended && (_activeCall is not null || _resumeNativeActionProcessAfterHangUp);
+        _nativeActionProcessSuspended &&
+        (_activeCall is not null || _resumeNativeActionProcessAfterHangUp) &&
+        !_nativePhoneEndAnimationActive;
+
+    internal static bool IsNativePhoneEndAnimationActive => _nativePhoneEndAnimationActive;
 
     internal static void SuspendNativeActionProcessForShop()
     {
@@ -744,12 +750,14 @@ internal static partial class PhoneRuntime
         {
             _nativeActionProcessSuspended = false;
             _resumeNativeActionProcessAfterHangUp = false;
+            _nativePhoneEndAnimationActive = false;
             _deferredNativeActionAdvanceCount = 0;
             return;
         }
 
         try
         {
+            _nativePhoneEndAnimationActive = true;
             _nativePhoneHangUpCallback =
                 DelegateSupport.ConvertDelegate<Il2CppSystem.Action>(CompleteNativePhoneHangUp);
             ActionPhone.PlayPhoneEndAnimationAndCallBack(_nativePhoneHangUpCallback);
@@ -758,6 +766,7 @@ internal static partial class PhoneRuntime
         }
         catch (Exception exception)
         {
+            _nativePhoneEndAnimationActive = false;
             Plugin.Logger?.LogWarning(
                 $"[PhoneRuntime] Native phone end animation failed; falling back to direct hang-up: {exception.Message}");
             CompleteNativePhoneHangUp();
@@ -815,6 +824,7 @@ internal static partial class PhoneRuntime
         finally
         {
             _nativePhoneHangUpCallback = null;
+            _nativePhoneEndAnimationActive = false;
         }
 
         var deferredAdvanceCount = _deferredNativeActionAdvanceCount;
@@ -2158,6 +2168,13 @@ internal static class NativeActionBaseDoNextProcessPatch
     [HarmonyPrefix]
     private static bool Prefix()
     {
+        if (PhoneRuntime.IsNativePhoneEndAnimationActive)
+        {
+            Plugin.Logger?.LogInfo(
+                "[PhoneRuntime] Allowed ActionBase.DoNextProcess so the native phone end animation can finish.");
+            return true;
+        }
+
         if (!PhoneRuntime.ShouldDeferNativeActionProgress)
         {
             return true;
