@@ -5,7 +5,36 @@
   "number": "48329",
   "displayName": "JSON 修理店",
   "addToPhoneBook": true,
-  "lines": [
+  "routes": [
+    {
+      "id": "late-night",
+      "when": {
+        "all": [
+          { "dayAtLeast": 1 },
+          { "timeBetween": { "start": "20:00", "end": "06:00" } }
+        ]
+      },
+      "lines": [
+        {
+          "speakerType": "Caller",
+          "text": "这么晚了还打电话？明天白天再来修理收音机吧。",
+          "endCall": true
+        }
+      ]
+    },
+    {
+      "id": "has-apple",
+      "when": { "itemCountAtLeast": { "item": "backtothedawn:apple", "count": 1 } },
+      "lines": [
+        {
+          "speakerType": "Caller",
+          "text": "带了苹果来？我可以用它抵一部分修理费。",
+          "endCall": true
+        }
+      ]
+    }
+  ],
+  "defaultLines": [
     {
       "id": "menu",
       "speakerType": "Caller",

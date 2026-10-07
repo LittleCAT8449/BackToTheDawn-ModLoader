@@ -11,6 +11,7 @@ namespace BackToTheDawn.Loader;
 internal static partial class PhoneRuntime
 {
     private sealed record OwnedConversation(string OwnerId, PhoneConversationDefinition Definition);
+    private sealed record OwnedCondition(string OwnerId, Func<PhoneCallContext, bool> Predicate);
 
     internal sealed record NativeDialogueTarget(
         InteractionTalk? CallerInteractionTalk,
@@ -41,6 +42,8 @@ internal static partial class PhoneRuntime
     private sealed record LoadedPhoneIcon(string OwnerId, Sprite Sprite);
 
     private static readonly Dictionary<string, OwnedConversation> Conversations =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, OwnedCondition> Conditions =
         new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, OwnedPhoneNumber> PhoneNumbers =
         new(StringComparer.Ordinal);
@@ -80,7 +83,8 @@ internal static partial class PhoneRuntime
         string ownerId,
         PhoneConversationDefinition definition)
     {
-        if (PhoneDialogueGraph.Validate(definition.Lines) is { } graphError)
+        if (definition.DynamicLinesFactory is null &&
+            PhoneDialogueGraph.Validate(definition.Lines) is { } graphError)
         {
             return new PhoneConversationRegistrationResult(
                 definition.Key,
@@ -108,12 +112,58 @@ internal static partial class PhoneRuntime
         definition = definition with { Lines = PhoneDialogueGraph.Snapshot(definition.Lines) };
         Conversations.Add(definition.Key, new OwnedConversation(ownerId, definition));
         Plugin.Logger?.LogInfo(
-            $"[PhoneRuntime] Registered phone conversation '{definition.Key}' " +
-            $"with {definition.Lines.Count} line(s).");
+            definition.DynamicLinesFactory is null
+                ? $"[PhoneRuntime] Registered phone conversation '{definition.Key}' " +
+                  $"with {definition.Lines.Count} line(s)."
+                : $"[PhoneRuntime] Registered dynamic phone conversation '{definition.Key}'.");
         return new PhoneConversationRegistrationResult(
             definition.Key,
             PhoneConversationRegistrationStatus.Succeeded,
             "Phone conversation registered.");
+    }
+
+    internal static PhoneConditionRegistrationResult RegisterCondition(
+        string ownerId,
+        string key,
+        Func<PhoneCallContext, bool> predicate)
+    {
+        if (Conditions.ContainsKey(key))
+        {
+            return new PhoneConditionRegistrationResult(
+                key,
+                PhoneConditionRegistrationStatus.AlreadyRegistered,
+                $"Phone condition '{key}' is already registered.");
+        }
+
+        Conditions.Add(key, new OwnedCondition(ownerId, predicate));
+        Plugin.Logger?.LogInfo($"[PhoneRuntime] Registered phone condition '{key}'.");
+        return new PhoneConditionRegistrationResult(
+            key,
+            PhoneConditionRegistrationStatus.Succeeded,
+            "Phone condition registered.");
+    }
+
+    internal static bool? EvaluateCondition(
+        string requestingModId,
+        string key,
+        PhoneCallContext context)
+    {
+        if (!Conditions.TryGetValue(key, out var condition))
+        {
+            return null;
+        }
+
+        try
+        {
+            return condition.Predicate(context);
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger?.LogError(
+                $"[PhoneRuntime] Condition '{key}' used by '{requestingModId}' " +
+                $"threw an exception: {exception}");
+            return null;
+        }
     }
 
     internal static PhoneNumberRegistrationResult RegisterNumber(
@@ -236,6 +286,42 @@ internal static partial class PhoneRuntime
             !PhoneNumbers.TryGetValue(number, out var phone) ||
             !Conversations.TryGetValue(phone.ConversationKey, out var conversation))
         {
+            return false;
+        }
+
+        try
+        {
+            var definition = conversation.Definition;
+            var lines = definition.DynamicLinesFactory is { } lineFactory
+                ? lineFactory(new PhoneCallContext(phone.Number, phone.DisplayName, GameContext.Time))?.ToArray()
+                : definition.Lines.ToArray();
+            if (lines is null)
+            {
+                Plugin.Logger?.LogError(
+                    $"[PhoneRuntime] Dynamic conversation '{definition.Key}' returned no lines for call '{number}'.");
+                return false;
+            }
+
+            if (PhoneDialogueGraph.Validate(lines) is { } graphError)
+            {
+                Plugin.Logger?.LogError(
+                    $"[PhoneRuntime] Dynamic conversation '{definition.Key}' returned an invalid dialogue graph: {graphError}");
+                return false;
+            }
+
+            conversation = conversation with
+            {
+                Definition = definition with
+                {
+                    Lines = PhoneDialogueGraph.Snapshot(lines),
+                    DynamicLinesFactory = null,
+                },
+            };
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger?.LogError(
+                $"[PhoneRuntime] Creating dialogue for call '{number}' failed; call was not started: {exception}");
             return false;
         }
 
@@ -847,6 +933,14 @@ internal static partial class PhoneRuntime
 
     internal static void UnregisterMod(string ownerId)
     {
+        foreach (var key in Conditions
+                     .Where(pair => string.Equals(pair.Value.OwnerId, ownerId, StringComparison.OrdinalIgnoreCase))
+                     .Select(pair => pair.Key)
+                     .ToArray())
+        {
+            Conditions.Remove(key);
+        }
+
         var removedPhones = PhoneNumbers.Values
             .Where(phone => string.Equals(phone.OwnerId, ownerId, StringComparison.OrdinalIgnoreCase))
             .ToArray();
@@ -889,6 +983,7 @@ internal static partial class PhoneRuntime
         RemoveRuntimeRowsIfAvailable();
         PhoneNumbers.Clear();
         Conversations.Clear();
+        Conditions.Clear();
         LineOverrides.Clear();
         EndCall();
         RemovePhoneInteractionIcons(ownerId: null);
@@ -1485,6 +1580,8 @@ internal static class PhoneRuntimeProviders
     internal static void Install()
     {
         PhoneApi.ConversationRegistrationProvider = PhoneRuntime.RegisterConversation;
+        PhoneApi.ConditionRegistrationProvider = PhoneRuntime.RegisterCondition;
+        PhoneApi.ConditionEvaluationProvider = PhoneRuntime.EvaluateCondition;
         PhoneApi.NumberRegistrationProvider = PhoneRuntime.RegisterNumber;
         PhoneApi.LineOverrideProvider = PhoneRuntime.OverrideLine;
         PhoneApi.SubscriberErrorLogger = exception =>
@@ -1494,6 +1591,8 @@ internal static class PhoneRuntimeProviders
     internal static void Clear()
     {
         PhoneApi.ConversationRegistrationProvider = null;
+        PhoneApi.ConditionRegistrationProvider = null;
+        PhoneApi.ConditionEvaluationProvider = null;
         PhoneApi.NumberRegistrationProvider = null;
         PhoneApi.LineOverrideProvider = null;
         PhoneApi.SubscriberErrorLogger = null;

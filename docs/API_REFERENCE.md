@@ -9,7 +9,7 @@
 | ModAPI | 模组生命周期、物品、事件、背包、游戏状态、任务等通用接口 | [ModAPI](#mod-api) |
 | Task API | 查询、注册、接取和推进任务 | [任务 API](#task-api) |
 | JSON 任务 | 任务清单、定义、目标和 C# 调用方式 | [JSON 任务](#task-api-json) |
-| PhoneAPI | 电话号码、对话、选项、分支和图片 | [C# 接口](#phone-api) · [JSON 格式](#phone-api-json) |
+| PhoneAPI | 电话号码、对话、选项、分支、条件路线和图片 | [C# 接口](#phone-api) · [JSON 格式](#phone-api-json) |
 | ShopAPI | 原生商店、商品目录、交易和物品键 | [C# 接口](#shop-api) · [JSON 格式](#shop-api-json) · [状态与目录](#shop-api-status) |
 | ItemKey | 游戏物品完整命名空间键表 | [物品键表](#item-keys) |
 
@@ -1365,6 +1365,57 @@ public sealed class PhoneMod : IMod
 
 Conversation key 会自动加上 Mod 清单中的 `id` 前缀，例如 `dev.example.mod:repair-shop`。电话号码必须是五位数字，不能与其他 Mod 或游戏内号码重复。电话簿条目和对话只在本次游戏运行中生效，不会修改存档。
 
+#### 按拨打时间生成对话
+
+如果同一个号码需要按拨打时的游戏时间等状态生成不同台词，可以使用 `RegisterDynamicConversation`。传入的函数会在每次拨号开始时调用一次；该次通话使用返回的台词快照，通话中时间变化不会改写正在播放的内容。
+
+```csharp
+var phones = PhoneApi.For(context);
+var morningLines = new[]
+{
+    new PhoneDialogueLine("塞琳娜", "早上好，昨晚休息得怎么样？"),
+    new PhoneDialogueLine("你", "还不错，今天准备继续调查。", PhoneDialogueSpeakerType.Player)
+    {
+        EndCall = true,
+    },
+};
+var eveningLines = new[]
+{
+    new PhoneDialogueLine("塞琳娜", "这么晚了还在忙吗？"),
+    new PhoneDialogueLine("你", "我马上休息，明天再继续。", PhoneDialogueSpeakerType.Player)
+    {
+        EndCall = true,
+    },
+};
+
+phones.RegisterDynamicConversation("selina", call =>
+{
+    var hour = call.Time?.Hour ?? 12;
+    return hour >= 18 || hour < 6 ? eveningLines : morningLines;
+});
+phones.RegisterNumber("27621", "塞琳娜", "selina");
+```
+
+`PhoneCallContext` 提供拨打的 `Number`、`DisplayName` 和当时的 `Time`（`GameTimeSnapshot?`）。时间为空时应自行选择默认台词。Loader 会在实际拨号前校验动态函数返回的台词和分支；函数抛出异常或返回无效内容时，该次通话不会开始，也不会扣除拨打次数。静态 `RegisterConversation` 不受影响。
+
+#### 给 JSON 注册自定义条件
+
+JSON 路线可以使用内置条件，也可以引用 DLL 模组注册的自定义条件。条件 ID 自动带上注册者的 Mod 命名空间；引用其他 Mod 的条件时，JSON 模组必须在 `Manifest.json` 中依赖该 DLL 模组。
+
+```csharp
+var phones = PhoneApi.For(context);
+var result = phones.RegisterCondition("knows-secret", call =>
+{
+    // 这里可以组合本模组的任务状态、配置、剧情标记或其他 ModAPI 状态。
+    return StoryFlags.KnowsSecret && call.Time is { Day: >= 3 };
+});
+
+if (!result.Succeeded)
+    context.Logger.Warning(result.Message);
+```
+
+上例注册的完整 ID 是 `你的模组ID:knows-secret`。自定义条件只允许被注册者本身或声明依赖它的模组引用。条件在每次拨号时求值一次；`TryEvaluateCondition` 可供 C# 动态对话直接查询，未知或无权访问的 ID 返回 `false`，同时将 `out result` 设为 `false`。
+
 #### 原生选项与分支
 
 在某句台词的 `Options` 中填写选项。玩家完成这句台词后，Loader 调用游戏的 `CharacterTalk.ShowTalkOptionsList` 显示原生列表，等待玩家选择，再播放对应分支。等待选择时，继续对话的输入不会跳过菜单。取消原生列表会结束通话，并执行已有的挂断和操作恢复流程。
@@ -1544,6 +1595,60 @@ DLL 模组继续使用已有的 `mod.json`。一个目录只能选择其中一�
 }
 ```
 
+#### 条件路线
+
+一个号码可以有多条候选对话。拨号时从上到下检查 `routes`，选择第一条条件成立的路线；都不成立时播放 `defaultLines`。条件只在拨号开始时检查一次。旧格式的 `lines` 仍然有效，但不能与 `routes` / `defaultLines` 混用。
+
+```json
+{
+  "type": "phoneConversation",
+  "key": "selina",
+  "number": "27621",
+  "displayName": "塞琳娜",
+  "routes": [
+    {
+      "id": "after-evidence",
+      "when": {
+        "all": [
+          { "taskCompleted": 12345 },
+          { "any": [
+            { "timeBetween": { "start": "20:00", "end": "06:00" } },
+            { "moneyAtLeast": 100 }
+          ] },
+          { "custom": "dev.example.story:knows-secret" }
+        ]
+      },
+      "lines": [
+        { "speakerType": "Caller", "text": "你已经找到证据了？" },
+        { "speakerType": "Player", "text": "是的，我们可以继续计划了。", "endCall": true }
+      ]
+    }
+  ],
+  "defaultLines": [
+    { "speakerType": "Caller", "text": "喂？找我有什么事？", "endCall": true }
+  ]
+}
+```
+
+`custom` 使用完整条件 ID；上例的电话模组需在 `Manifest.json` 的 `dependencies` 中加入 `dev.example.story`。对应 DLL 模组通过 `RegisterCondition("knows-secret", ...)` 注册它。
+
+支持的条件：
+
+| 条件 | JSON 值 | 说明 |
+| --- | --- | --- |
+| `all` | 条件数组 | 所有子条件都成立。 |
+| `any` | 条件数组 | 至少一个子条件成立。 |
+| `not` | 单个条件 | 子条件不成立时为真。 |
+| `taskCompleted` | 整数任务 ID | 指定的原生任务已完成；模组自己的剧情任务可注册 C# 自定义条件。 |
+| `dayAtLeast` / `dayAtMost` | 整数 | 拨打当天的游戏日下限或上限。 |
+| `timeBetween` | `{ "start": "HH:mm", "end": "HH:mm" }` | 24 小时制，起止时间均包含；结束早于开始时表示跨午夜。 |
+| `moneyAtLeast` | 整数 | 当前金钱不少于指定值。 |
+| `itemCountAtLeast` | `{ "item": "namespace:path", "count": 整数 }` | 背包中指定物品的总数不少于指定值。 |
+| `friendAtLeast` / `affectionAtLeast` | `{ "characterId": 整数, "value": 整数 }` | 指定角色的友好度或好感度达到指定值。 |
+| `custom` | 条件 ID 字符串 | 调用 DLL 模组通过 PhoneAPI 注册的自定义条件。 |
+
+每个条件对象只能包含一个运算符；`all` 和 `any` 需要非空数组。路线 `id` 在同一对话内唯一，仅用于识别和诊断。引用的自定义条件不存在、提供者未加载或未声明依赖时，该条件按不成立处理，并在日志中记录警告；默认对话仍可播放。
+
 ##### 文件字段
 
 | 字段 | 说明 |
@@ -1576,7 +1681,7 @@ DLL 模组继续使用已有的 `mod.json`。一个目录只能选择其中一�
 
 清单、对话标识、号码或分支定义有误时，`BepInEx/LogOutput.log` 会记录文件或模组及原因。扫描到的 JSON 必须语法正确。当前模组全部对话先解析校验，再开始注册；注册时遇到号码冲突等错误会撤销这个模组本轮注册的电话，其他模组继续加载。
 
-JSON 模式描述对话和跳转；需要选择回调中执行 C# 逻辑时，使用 DLL 模组和 `SubscribeOptionSelected`。C# 用法见 [PhoneAPI C# 接口](#phone-api)。
+JSON 模式描述对话、跳转和条件路线；需要写模组专属判断时，由 DLL 模组调用 `RegisterCondition`，再由 JSON 引用。需要选择回调中执行其他 C# 逻辑时，使用 DLL 模组和 `SubscribeOptionSelected`。C# 用法见 [PhoneAPI C# 接口](#phone-api)。
 
 ## ShopAPI：商店注册与交易
 

@@ -10,6 +10,11 @@ public sealed class PhoneApi
     internal static Func<string, PhoneConversationDefinition, PhoneConversationRegistrationResult>?
         ConversationRegistrationProvider { get; set; }
 
+    internal static Func<string, string, Func<PhoneCallContext, bool>, PhoneConditionRegistrationResult>?
+        ConditionRegistrationProvider { get; set; }
+
+    internal static Func<string, string, PhoneCallContext, bool?>? ConditionEvaluationProvider { get; set; }
+
     internal static Func<string, string, string, string, bool, PhoneNumberRegistrationResult>?
         NumberRegistrationProvider { get; set; }
 
@@ -21,14 +26,72 @@ public sealed class PhoneApi
     internal static Action<Exception>? SubscriberErrorLogger { get; set; }
 
     private readonly string _ownerId;
+    private readonly HashSet<string> _accessibleNamespaces;
 
-    private PhoneApi(string ownerId) => _ownerId = ownerId;
+    private PhoneApi(string ownerId, IEnumerable<string> accessibleNamespaces)
+    {
+        _ownerId = ownerId;
+        _accessibleNamespaces = new HashSet<string>(accessibleNamespaces, StringComparer.OrdinalIgnoreCase)
+        {
+            ownerId,
+        };
+    }
 
     /// <summary>Creates a phone API instance scoped to the supplied Mod context.</summary>
     public static PhoneApi For(ModContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return new PhoneApi(context.Manifest.Id);
+        return new PhoneApi(context.Manifest.Id, context.Manifest.Dependencies);
+    }
+
+    /// <summary>
+    /// Registers a named predicate that can be referenced by conditional JSON phone routes.
+    /// The key is scoped to this Mod and is evaluated when the player places a call.
+    /// </summary>
+    public PhoneConditionRegistrationResult RegisterCondition(
+        string key,
+        Func<PhoneCallContext, bool> predicate)
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+        var normalizedKey = NormalizeKey(key);
+        var separator = normalizedKey.IndexOf(':');
+        if (separator != normalizedKey.LastIndexOf(':') || separator == normalizedKey.Length - 1)
+        {
+            throw new ArgumentException(
+                "A phone condition key must have the form 'namespace:key'.",
+                nameof(key));
+        }
+        return ConditionRegistrationProvider?.Invoke(_ownerId, normalizedKey, predicate)
+               ?? PhoneConditionRegistrationResult.Unavailable(normalizedKey);
+    }
+
+    /// <summary>
+    /// Evaluates a condition registered by this Mod or one of its declared dependencies.
+    /// Returns false when the key is inaccessible or was not registered.
+    /// </summary>
+    public bool TryEvaluateCondition(
+        string key,
+        PhoneCallContext context,
+        out bool result)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var normalizedKey = NormalizeConditionReference(key);
+        var separator = normalizedKey.IndexOf(':');
+        if (separator <= 0 || !_accessibleNamespaces.Contains(normalizedKey[..separator]))
+        {
+            result = false;
+            return false;
+        }
+
+        var evaluated = ConditionEvaluationProvider?.Invoke(_ownerId, normalizedKey, context);
+        if (evaluated is null)
+        {
+            result = false;
+            return false;
+        }
+
+        result = evaluated.Value;
+        return true;
     }
 
     /// <summary>
@@ -61,6 +124,34 @@ public sealed class PhoneApi
                    _ownerId,
                    new PhoneConversationDefinition(normalizedKey, lineArray)
                    {
+                       InteractionIconPath = interactionIconPath,
+                   })
+               ?? PhoneConversationRegistrationResult.Unavailable(normalizedKey);
+    }
+
+    /// <summary>
+    /// Registers a conversation whose lines are created separately for each call.
+    /// The factory runs when the player places the call, using that call's time snapshot.
+    /// </summary>
+    public PhoneConversationRegistrationResult RegisterDynamicConversation(
+        string key,
+        Func<PhoneCallContext, IEnumerable<PhoneDialogueLine>> lineFactory,
+        string? interactionIconPath = null)
+    {
+        ArgumentNullException.ThrowIfNull(lineFactory);
+        var normalizedKey = NormalizeKey(key);
+        if (interactionIconPath is not null && string.IsNullOrWhiteSpace(interactionIconPath))
+        {
+            throw new ArgumentException(
+                "A phone interaction icon path cannot be empty.",
+                nameof(interactionIconPath));
+        }
+
+        return ConversationRegistrationProvider?.Invoke(
+                   _ownerId,
+                   new PhoneConversationDefinition(normalizedKey, Array.Empty<PhoneDialogueLine>())
+                   {
+                       DynamicLinesFactory = lineFactory,
                        InteractionIconPath = interactionIconPath,
                    })
                ?? PhoneConversationRegistrationResult.Unavailable(normalizedKey);
@@ -202,6 +293,28 @@ public sealed class PhoneApi
         return trimmed;
     }
 
+    private string NormalizeConditionReference(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new ArgumentException("A phone condition key is required.", nameof(key));
+        }
+
+        var trimmed = key.Trim();
+        if (!trimmed.Contains(':'))
+        {
+            return $"{_ownerId}:{trimmed}";
+        }
+
+        var separator = trimmed.IndexOf(':');
+        if (separator <= 0 || separator != trimmed.LastIndexOf(':') || separator == trimmed.Length - 1)
+        {
+            throw new ArgumentException("A phone condition key must have the form 'namespace:key'.", nameof(key));
+        }
+
+        return trimmed;
+    }
+
     private sealed class Subscription : IDisposable
     {
         private Action? _dispose;
@@ -260,11 +373,39 @@ public sealed record PhoneConversationDefinition(
     string Key,
     IReadOnlyList<PhoneDialogueLine> Lines)
 {
+    /// <summary>Optional factory evaluated once when each call begins.</summary>
+    internal Func<PhoneCallContext, IEnumerable<PhoneDialogueLine>>? DynamicLinesFactory { get; init; }
+
     /// <summary>
     /// Optional PNG path relative to this Mod's resource directory. When set,
     /// it replaces the visible TalkPhone caller picture while this conversation is active.
     /// </summary>
     public string? InteractionIconPath { get; init; }
+}
+
+/// <summary>Game state captured when a registered phone call begins.</summary>
+public sealed record PhoneCallContext(
+    string Number,
+    string DisplayName,
+    GameTimeSnapshot? Time);
+
+public enum PhoneConditionRegistrationStatus
+{
+    Succeeded,
+    AlreadyRegistered,
+    Unavailable,
+}
+
+public sealed record PhoneConditionRegistrationResult(
+    string Key,
+    PhoneConditionRegistrationStatus Status,
+    string Message)
+{
+    public bool Succeeded => Status == PhoneConditionRegistrationStatus.Succeeded;
+
+    internal static PhoneConditionRegistrationResult Unavailable(string key) =>
+        new(key, PhoneConditionRegistrationStatus.Unavailable,
+            "The loader phone runtime is not available.");
 }
 
 public enum PhoneConversationRegistrationStatus
