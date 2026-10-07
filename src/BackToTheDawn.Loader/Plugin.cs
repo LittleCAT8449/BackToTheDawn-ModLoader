@@ -22,6 +22,7 @@ public sealed class Plugin : BasePlugin
     private ConfigEntry<bool>? _enableRuntimeProbe;
     private ConfigEntry<bool>? _enableLifecycleHooks;
     private ConfigEntry<bool>? _enableRuntimeItemInjection;
+    private static ConfigEntry<bool>? _debugMode;
     private System.Action<Scene, LoadSceneMode>? _sceneLoadedHandler;
     private Harmony? _harmony;
     private Harmony? _phoneHarmony;
@@ -39,6 +40,12 @@ public sealed class Plugin : BasePlugin
     internal static bool RuntimeItemInjectionEnabled { get; private set; }
 
     internal static ManualLogSource? Logger { get; private set; }
+
+    internal static void DebugLog(object data)
+    {
+        if (_debugMode?.Value == true)
+            Logger?.LogDebug(data);
+    }
 
     public override void Load()
     {
@@ -76,6 +83,12 @@ public sealed class Plugin : BasePlugin
             "ShowConsole",
             false,
             "Enable the in-game loader console (toggle with F8).");
+
+        _debugMode = Config.Bind(
+            "Logging",
+            "DebugMode",
+            false,
+            "Output Loader and ModAPI debug messages to the BepInEx log/console.");
 
         _enableRuntimeProbe = Config.Bind(
             "Diagnostics",
@@ -275,6 +288,7 @@ public sealed class Plugin : BasePlugin
 
         Log.LogInfo($"{PluginName} unloaded.");
         Logger = null;
+        _debugMode = null;
         return true;
     }
 

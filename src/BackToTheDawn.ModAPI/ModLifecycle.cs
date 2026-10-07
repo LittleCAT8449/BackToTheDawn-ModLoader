@@ -15,6 +15,11 @@ public interface IMod
 /// </summary>
 public interface IModLogger
 {
+    /// <summary>Writes a diagnostic message when Loader debug mode is enabled.</summary>
+    void Debug(string message)
+    {
+    }
+
     void Info(string message);
 
     void Warning(string message);
@@ -25,6 +30,10 @@ public interface IModLogger
 internal sealed class NullModLogger : IModLogger
 {
     public static NullModLogger Instance { get; } = new();
+
+    public void Debug(string message)
+    {
+    }
 
     public void Info(string message)
     {

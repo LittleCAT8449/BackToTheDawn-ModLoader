@@ -246,6 +246,8 @@ internal sealed class BepInExModLogger : IModLogger
 
     public void Info(string message) => _logger.LogInfo($"[{_modId}] {message}");
 
+    public void Debug(string message) => Plugin.DebugLog($"[{_modId}] {message}");
+
     public void Warning(string message) => _logger.LogWarning($"[{_modId}] {message}");
 
     public void Error(string message) => _logger.LogError($"[{_modId}] {message}");

@@ -43,6 +43,20 @@ Steam
 
 游戏主要使用一个名为 `Game` 的 Unity 场景。主菜单、读档和正式游戏不是通过场景切换区分，而是由游戏内部状态和 UI 控制。
 
+### 日志
+
+Mod 可通过 `ModContext.Logger` 写入带有 Mod ID 前缀的 BepInEx 日志：
+
+```csharp
+context.Logger.Debug("正在检查自定义数据");
+context.Logger.Info("初始化完成");
+context.Logger.Warning("找不到可选资源");
+context.Logger.Error("注册失败");
+```
+
+`Debug` 消息以及 Loader 自身的 Debug 日志由 `BepInEx/config/dev.backtothedawn.loader.cfg` 中的
+`[Logging] DebugMode` 控制，默认关闭。`Info`、`Warning` 和 `Error` 不受此开关影响。
+
 ### 引用加载器
 
 Mod 项目需要引用：
