@@ -55,6 +55,9 @@ internal static partial class PhoneRuntime
     private static ActiveCall? _activeCall;
     private static int _activeLineIndex;
     private static bool _nativePhoneCallActive;
+    private static bool _nativeActionProcessSuspended;
+    private static bool _resumeNativeActionProcessAfterHangUp;
+    private static int _deferredNativeActionAdvanceCount;
     private static bool _nativeDialogueDisplayed;
     private static NativeDialogueTarget? _activeNativeDialogueTarget;
     private static int _nativeDialogueLineIndex;
@@ -356,6 +359,9 @@ internal static partial class PhoneRuntime
         _nextPhoneIconSearchFrame = 0;
         _activeInteractionIconPath = null;
         _activeCall = new ActiveCall(phone, conversation);
+        _nativeActionProcessSuspended = false;
+        _resumeNativeActionProcessAfterHangUp = false;
+        _deferredNativeActionAdvanceCount = 0;
         _activeLineIndex = 0;
         _nativeDialogueDisplayed = false;
         _activeNativeDialogueTarget = null;
@@ -372,7 +378,113 @@ internal static partial class PhoneRuntime
         return true;
     }
 
+    internal static bool ResumeCurrentCall(string ownerId, string number, string conversationKey)
+    {
+        if (_activeCall is not { } call ||
+            !string.Equals(call.Phone.OwnerId, ownerId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(call.Phone.Number, number, StringComparison.Ordinal) ||
+            !string.Equals(call.Conversation.Definition.Key, conversationKey, StringComparison.OrdinalIgnoreCase) ||
+            _waitingForPhoneOption)
+        {
+            return false;
+        }
+
+        if (CurrentLine is { Options.Count: > 0 })
+        {
+            _nativeDialogueLineIndex = _activeLineIndex;
+            _lastNativeDialogueAdvanceFrame = Time.frameCount;
+            ShowPhoneOptions();
+            KeepNativePhoneIconVisible();
+        }
+        else if (_activeNativeDialogueTarget is not null &&
+            _activeLineIndex >= 0 && _activeLineIndex < NativeDialogueTalkStrings.Count)
+        {
+            _nativeDialogueDisplayed = true;
+            _nativeDialogueLineIndex = _activeLineIndex;
+            _lastNativeDialogueAdvanceFrame = Time.frameCount;
+            PresentNativeDialogueLine();
+            KeepNativePhoneIconVisible();
+        }
+        else
+        {
+            _nativeDialogueDisplayed = false;
+            RaiseActiveLine();
+        }
+
+        Plugin.Logger?.LogInfo(
+            $"[PhoneRuntime] Restored the current phone interaction for '{number}' after an external UI closed.");
+        return true;
+    }
+
     internal static bool HasActiveCall => _activeCall is not null;
+
+    internal static bool ShouldDeferNativeActionProgress =>
+        _nativeActionProcessSuspended && (_activeCall is not null || _resumeNativeActionProcessAfterHangUp);
+
+    internal static void SuspendNativeActionProcessForShop()
+    {
+        if (_activeCall is null || _nativeActionProcessSuspended)
+        {
+            return;
+        }
+
+        _nativeActionProcessSuspended = true;
+        Plugin.Logger?.LogInfo(
+            "[PhoneRuntime] Suspended native ActionBase progression for the shop opened from this phone call.");
+    }
+
+    internal static void DeferNativeActionProgress()
+    {
+        _deferredNativeActionAdvanceCount++;
+        Plugin.Logger?.LogInfo(
+            $"[PhoneRuntime] Deferred ActionBase.DoNextProcess during the phone shop handoff " +
+            $"(pending={_deferredNativeActionAdvanceCount}).");
+    }
+
+    internal static bool ShouldSuppressNativeHangUp => _activeCall is not null;
+
+    internal static bool ShouldPreserveNativeTalkPhone(TalkPhone phone)
+    {
+        if (_activeCall is null || phone is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var activePhone = _activeNativeDialogueTarget?.CallerInteractionTalk?.talkPhone ?? _activeTalkPhone;
+            return activePhone is null || activePhone.GetInstanceID() == phone.GetInstanceID();
+        }
+        catch (Exception exception)
+        {
+            Plugin.DebugLog(
+                $"[PhoneRuntime] Could not compare the active TalkPhone before hang-up: {exception.Message}");
+            return true;
+        }
+    }
+
+    internal static bool ShouldPreserveNativeTalkPhoneInteraction(InteractionTalk interaction)
+    {
+        if (_activeCall is null || interaction is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var activeInteraction = _activeNativeDialogueTarget?.CallerInteractionTalk;
+            var activePhone = activeInteraction?.talkPhone ?? _activeTalkPhone;
+            var interactionPhone = interaction.talkPhone;
+            return activePhone is not null && interactionPhone is not null &&
+                   activePhone.GetInstanceID() == interactionPhone.GetInstanceID();
+        }
+        catch (Exception exception)
+        {
+            Plugin.DebugLog(
+                $"[PhoneRuntime] Could not compare the active InteractionTalk before phone cleanup: {exception.Message}");
+            return false;
+        }
+    }
 
     internal static string ActiveDisplayName => _activeCall?.Phone.DisplayName ?? string.Empty;
 
@@ -605,6 +717,7 @@ internal static partial class PhoneRuntime
     internal static void EndCall()
     {
         var shouldHangUpPhone = _activeCall is not null;
+        _resumeNativeActionProcessAfterHangUp |= shouldHangUpPhone && _nativeActionProcessSuspended;
         var dialogueTarget = _activeNativeDialogueTarget;
         _nativeLineGeneration++;
         ClearPhoneOptions();
@@ -629,6 +742,9 @@ internal static partial class PhoneRuntime
 
         if (!shouldHangUpPhone)
         {
+            _nativeActionProcessSuspended = false;
+            _resumeNativeActionProcessAfterHangUp = false;
+            _deferredNativeActionAdvanceCount = 0;
             return;
         }
 
@@ -683,6 +799,7 @@ internal static partial class PhoneRuntime
 
     private static void CompleteNativePhoneHangUp()
     {
+        var shouldResumeActionProcess = _resumeNativeActionProcessAfterHangUp;
         try
         {
             ActionPhone.HangUpPhone();
@@ -698,6 +815,32 @@ internal static partial class PhoneRuntime
         finally
         {
             _nativePhoneHangUpCallback = null;
+        }
+
+        var deferredAdvanceCount = _deferredNativeActionAdvanceCount;
+        _nativeActionProcessSuspended = false;
+        _resumeNativeActionProcessAfterHangUp = false;
+        _deferredNativeActionAdvanceCount = 0;
+        if (!shouldResumeActionProcess || deferredAdvanceCount == 0)
+        {
+            return;
+        }
+
+        for (var index = 0; index < deferredAdvanceCount; index++)
+        {
+            try
+            {
+                ActionBase.DoNextProcess();
+                Plugin.Logger?.LogInfo(
+                    $"[PhoneRuntime] Resumed deferred ActionBase progression after hang-up " +
+                    $"({index + 1}/{deferredAdvanceCount}).");
+            }
+            catch (Exception exception)
+            {
+                Plugin.Logger?.LogWarning(
+                    $"[PhoneRuntime] Could not resume deferred ActionBase progression after hang-up: {exception.Message}");
+                break;
+            }
         }
     }
 
@@ -1058,7 +1201,7 @@ internal static partial class PhoneRuntime
         }
         catch (Exception exception)
         {
-            Plugin.Logger?.LogDebug(
+            Plugin.DebugLog(
                 $"[PhoneRuntime] Phone table is not ready yet; registrations remain queued. {exception.Message}");
             return false;
         }
@@ -1101,7 +1244,7 @@ internal static partial class PhoneRuntime
         }
         catch (Exception exception)
         {
-            Plugin.Logger?.LogDebug(
+            Plugin.DebugLog(
                 $"[PhoneRuntime] Could not remove runtime phone rows during reset: {exception.Message}");
         }
     }
@@ -1491,7 +1634,7 @@ internal static partial class PhoneRuntime
             }
             catch (Exception exception)
             {
-                Plugin.Logger?.LogDebug(
+                Plugin.DebugLog(
                     $"[PhoneRuntime] Could not restore a phone interaction UI image: {exception.Message}");
             }
         }
@@ -1523,7 +1666,7 @@ internal static partial class PhoneRuntime
             }
             catch (Exception exception)
             {
-                Plugin.Logger?.LogDebug(
+                Plugin.DebugLog(
                     $"[PhoneRuntime] Could not release a cached phone interaction icon: {exception.Message}");
             }
         }
@@ -1584,6 +1727,7 @@ internal static class PhoneRuntimeProviders
         PhoneApi.ConditionEvaluationProvider = PhoneRuntime.EvaluateCondition;
         PhoneApi.NumberRegistrationProvider = PhoneRuntime.RegisterNumber;
         PhoneApi.LineOverrideProvider = PhoneRuntime.OverrideLine;
+        PhoneApi.ResumeCurrentCallProvider = PhoneRuntime.ResumeCurrentCall;
         PhoneApi.SubscriberErrorLogger = exception =>
             Plugin.Logger?.LogError($"[PhoneRuntime] Phone observer failed: {exception}");
     }
@@ -1595,6 +1739,7 @@ internal static class PhoneRuntimeProviders
         PhoneApi.ConditionEvaluationProvider = null;
         PhoneApi.NumberRegistrationProvider = null;
         PhoneApi.LineOverrideProvider = null;
+        PhoneApi.ResumeCurrentCallProvider = null;
         PhoneApi.SubscriberErrorLogger = null;
         PhoneApi.ClearSubscribers();
         PhoneRuntime.Reset();
@@ -1617,6 +1762,12 @@ internal static class PhoneRuntimePatchInstaller
         harmony.PatchAll(typeof(PhoneDialogueTextPatch));
         harmony.PatchAll(typeof(NativePhoneCallStartedPatch));
         harmony.PatchAll(typeof(NativePhoneCallEndedPatch));
+        harmony.PatchAll(typeof(NativePhoneHangUpAnimationPatch));
+        harmony.PatchAll(typeof(NativePhoneEndAnimationPatch));
+        harmony.PatchAll(typeof(NativePhoneEndAnimationCallbackPatch));
+        harmony.PatchAll(typeof(NativeActionBaseDoNextProcessPatch));
+        harmony.PatchAll(typeof(NativeInteractionTalkUnShowPhonePatch));
+        harmony.PatchAll(typeof(NativeTalkPhoneHangUpPatch));
         harmony.PatchAll(typeof(NativePhoneLineObservedPatch));
         harmony.PatchAll(typeof(PhoneDialogueTypingPatch));
         harmony.PatchAll(typeof(PhoneCharacterAnimationSpritePatch));
@@ -1888,8 +2039,133 @@ internal static class NativePhoneCallStartedPatch
 [HarmonyPatch(typeof(ActionPhone), nameof(ActionPhone.HangUpPhone))]
 internal static class NativePhoneCallEndedPatch
 {
+    [HarmonyPrefix]
+    private static bool Prefix()
+    {
+        var shouldSuppress = PhoneRuntime.ShouldSuppressNativeHangUp;
+        Plugin.Logger?.LogInfo(
+            $"[PhoneRuntime] Native HangUpPhone entered (customCallActive={shouldSuppress}).");
+        if (!shouldSuppress)
+        {
+            return true;
+        }
+
+        Plugin.Logger?.LogInfo(
+            "[PhoneRuntime] Suppressed native HangUpPhone while a custom call is active.");
+        return false;
+    }
+
     [HarmonyPostfix]
-    private static void Postfix() => PhoneRuntime.NativePhoneCallEnded();
+    private static void Postfix(bool __runOriginal)
+    {
+        if (__runOriginal)
+        {
+            PhoneRuntime.NativePhoneCallEnded();
+        }
+    }
+}
+
+[HarmonyPatch(typeof(ActionPhone), nameof(ActionPhone.PlayHangUpPhone))]
+internal static class NativePhoneHangUpAnimationPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(ref bool __result)
+    {
+        if (!PhoneRuntime.ShouldSuppressNativeHangUp)
+        {
+            return true;
+        }
+
+        __result = false;
+        Plugin.Logger?.LogInfo(
+            "[PhoneRuntime] Suppressed native PlayHangUpPhone while a custom call is active.");
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(ActionPhone), nameof(ActionPhone.PlayPhoneEndAnimation))]
+internal static class NativePhoneEndAnimationPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(ref bool __result)
+    {
+        if (!PhoneRuntime.ShouldSuppressNativeHangUp)
+        {
+            return true;
+        }
+
+        __result = false;
+        Plugin.Logger?.LogInfo(
+            "[PhoneRuntime] Suppressed native PlayPhoneEndAnimation while a custom call is active.");
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(ActionPhone), nameof(ActionPhone.PlayPhoneEndAnimationAndCallBack))]
+internal static class NativePhoneEndAnimationCallbackPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix()
+    {
+        if (!PhoneRuntime.ShouldSuppressNativeHangUp)
+        {
+            return true;
+        }
+
+        Plugin.Logger?.LogInfo(
+            "[PhoneRuntime] Suppressed native PlayPhoneEndAnimationAndCallBack while a custom call is active.");
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(TalkPhone), nameof(TalkPhone.HangUpPhone))]
+internal static class NativeTalkPhoneHangUpPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(TalkPhone __instance)
+    {
+        if (!PhoneRuntime.ShouldPreserveNativeTalkPhone(__instance))
+        {
+            return true;
+        }
+
+        Plugin.Logger?.LogInfo(
+            "[PhoneRuntime] Suppressed TalkPhone.HangUpPhone for the active custom call.");
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(InteractionTalk), nameof(InteractionTalk.UnShowTalkPhone))]
+internal static class NativeInteractionTalkUnShowPhonePatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(InteractionTalk __instance)
+    {
+        if (!PhoneRuntime.ShouldPreserveNativeTalkPhoneInteraction(__instance))
+        {
+            return true;
+        }
+
+        Plugin.Logger?.LogInfo(
+            "[PhoneRuntime] Suppressed InteractionTalk.UnShowTalkPhone for the active custom call.");
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(ActionBase), nameof(ActionBase.DoNextProcess))]
+internal static class NativeActionBaseDoNextProcessPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix()
+    {
+        if (!PhoneRuntime.ShouldDeferNativeActionProgress)
+        {
+            return true;
+        }
+
+        PhoneRuntime.DeferNativeActionProgress();
+        return false;
+    }
 }
 
 [HarmonyPatch(typeof(TalkWord), nameof(TalkWord.Say))]

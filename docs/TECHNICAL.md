@@ -33,8 +33,8 @@ BepInEx/config/dev.backtothedawn.loader.cfg
 | 分组 | 配置项 | 默认值 | 说明 |
 |---|---|---:|---|
 | `General` | `Enabled` | `true` | 启用加载器原型 |
-| `Interface` | `ShowStatusOverlay` | `true` | 显示左上角状态面板 |
-| `Interface` | `ShowConsole` | `true` | 启用 F8 开发控制台 |
+| `Interface` | `ShowStatusOverlay` | `false` | 显示左上角状态面板 |
+| `Interface` | `ShowConsole` | `false` | 启用 F8 开发控制台 |
 | `Items` | `EnableRuntimeItemInjection` | `true` | 实验性注入 Mod 物品到运行时 `c_item` |
 | `Diagnostics` | `EnableRuntimeProbe` | `true` | 场景加载后执行一次对象探针 |
 | `Diagnostics` | `EnableLifecycleHooks` | `true` | 安装生命周期 Hook 并提供 `GameEvents` |
@@ -49,6 +49,16 @@ BepInEx/config/dev.backtothedawn.loader.item-runtime-catalog.json
 ```
 
 快照仅用于分析，不会修改 `c_item`、背包、角色状态或存档。它包含当前运行时的 406 条配置；不同游戏版本可能有不同数量。
+
+## 页面层级诊断
+
+在配置文件中将 `Interface.ShowConsole` 设为 `true` 并重新启动游戏后，按 `F8` 打开 Loader 控制台。先打开要检查的原生页面，再运行：
+
+```text
+ui hierarchy main
+```
+
+结果会写入 `BepInEx/LogOutput.log`，每行带有 `[UIHierarchy]` 前缀，包含 Canvas 层级、对象状态、RectTransform 尺寸/位置、组件类型、UGUI/TMP 文本、按钮状态和图片 Sprite 名称。推荐使用 `ui hierarchy main` 聚焦游戏主界面 `Main Canvas`，避免把场景中大量 NPC 的世界空间 Canvas 混进结果。追加 `all` 可包括隐藏对象，例如 `ui hierarchy main all`。不带 `main` 会扫描场景中的 Canvas；这种模式最多收集 64 个 Canvas 和 6000 个对象。
 
 ## 版本兼容性
 

@@ -822,5 +822,24 @@ internal static class ShopBuyConfirmClosePatch
 [HarmonyPatch(typeof(UI_Shop), nameof(UI_Shop.CloseUI))]
 internal static class ShopBuyConfirmShopClosePatch
 {
-    private static void Postfix() => ShopQuantityPurchaseContext.Clear();
+    private static void Postfix()
+    {
+        ShopQuantityPurchaseContext.Clear();
+        ShopRuntime.NativeShopClosed();
+    }
+}
+
+[HarmonyPatch(typeof(ShopManage), nameof(ShopManage.GetGoodsListByShopId))]
+internal static class ManagedShopStockPatch
+{
+    private static void Postfix(
+        int shopId,
+        Il2CppSystem.Collections.Generic.List<ShopGoods> __result) =>
+        ShopRuntime.ApplyManagedStock(shopId, __result);
+}
+
+[HarmonyPatch(typeof(UI_Shop), nameof(UI_Shop.ShowGoodsListByShopId))]
+internal static class ManagedShopStockSessionPatch
+{
+    private static void Prefix(int shopId) => ShopRuntime.BeginStockSession(shopId);
 }

@@ -21,6 +21,8 @@ public sealed class PhoneApi
     internal static Func<string, string, string, PhoneLineOverrideResult>?
         LineOverrideProvider { get; set; }
 
+    internal static Func<string, string, string, bool>? ResumeCurrentCallProvider { get; set; }
+
     private static event Action<PhoneLineDisplayedEvent>? LineDisplayed;
     private static event Action<PhoneOptionSelectedEvent>? OptionSelected;
     internal static Action<Exception>? SubscriberErrorLogger { get; set; }
@@ -242,6 +244,23 @@ public sealed class PhoneApi
         ArgumentNullException.ThrowIfNull(handler);
         OptionSelected += handler;
         return new Subscription(() => OptionSelected -= handler);
+    }
+
+    /// <summary>
+    /// Restores the current interaction in this Mod's active call. If the current
+    /// line has options, the option list is shown again; otherwise the line is replayed.
+    /// This is useful after another native UI, such as a shop window, interrupts the call.
+    /// </summary>
+    /// <returns>True when the active call matched and its current line was resumed.</returns>
+    public bool ResumeCurrentCall(string number, string conversationKey)
+    {
+        if (string.IsNullOrWhiteSpace(number))
+        {
+            throw new ArgumentException("A phone number is required.", nameof(number));
+        }
+
+        var normalizedKey = NormalizeKey(conversationKey);
+        return ResumeCurrentCallProvider?.Invoke(_ownerId, number.Trim(), normalizedKey) ?? false;
     }
 
     internal static void PublishOptionSelected(PhoneOptionSelectedEvent value)

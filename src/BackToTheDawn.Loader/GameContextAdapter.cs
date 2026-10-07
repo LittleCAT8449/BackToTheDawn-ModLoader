@@ -1371,7 +1371,7 @@ internal static class GameContextAdapter
         }
         catch (Exception exception)
         {
-            Plugin.Logger?.LogDebug(
+            Plugin.DebugLog(
                 $"[RelationshipApi] Character dictionary capture failed: {exception.Message}");
         }
 

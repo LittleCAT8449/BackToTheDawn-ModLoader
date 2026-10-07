@@ -107,6 +107,7 @@ public sealed class LoaderConsole : MonoBehaviour
                 WriteLine("inventory [add|remove] <key> [count] | inventory (show snapshot)");
                 WriteLine("rooms | rooms get <key> | rooms goto <key>");
                 WriteLine("rooms unregister <key> | rooms unregister-all <modId>");
+                WriteLine("ui hierarchy [main] [all] (dump Canvas hierarchy and UI values to LogOutput.log)");
                 WriteLine("mods | state | clear");
                 break;
             case "items":
@@ -124,6 +125,11 @@ public sealed class LoaderConsole : MonoBehaviour
                 break;
             case "rooms":
                 ExecuteRoomCommand(
+                    parts.Length > 1 ? parts[1] : string.Empty,
+                    parts.Length > 2 ? parts[2] : string.Empty);
+                break;
+            case "ui":
+                ExecuteUiCommand(
                     parts.Length > 1 ? parts[1] : string.Empty,
                     parts.Length > 2 ? parts[2] : string.Empty);
                 break;
@@ -401,6 +407,31 @@ public sealed class LoaderConsole : MonoBehaviour
                 WriteLine("Unknown rooms command. Use rooms without arguments for a list.");
                 break;
         }
+    }
+
+    private void ExecuteUiCommand(string subcommand, string argumentText)
+    {
+        if (!string.Equals(subcommand, "hierarchy", StringComparison.OrdinalIgnoreCase))
+        {
+            WriteLine("Usage: ui hierarchy [main] [all]");
+            return;
+        }
+
+        var arguments = argumentText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var validArguments = arguments.All(argument =>
+            string.Equals(argument, "main", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(argument, "all", StringComparison.OrdinalIgnoreCase));
+        if (!validArguments || arguments.Distinct(StringComparer.OrdinalIgnoreCase).Count() != arguments.Length)
+        {
+            WriteLine("Usage: ui hierarchy [main] [all]");
+            return;
+        }
+
+        var mainCanvasOnly = arguments.Any(argument =>
+            string.Equals(argument, "main", StringComparison.OrdinalIgnoreCase));
+        var includeInactive = arguments.Any(argument =>
+            string.Equals(argument, "all", StringComparison.OrdinalIgnoreCase));
+        UiHierarchyDiagnostics.DumpActiveScene(includeInactive, mainCanvasOnly, WriteLine);
     }
 
     private void ShowState()

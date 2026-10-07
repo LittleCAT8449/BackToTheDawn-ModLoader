@@ -585,8 +585,9 @@ internal static class UiShopListUnitPurchasePatch
         var requestedCount = __instance.widgetItemListSelectCount?.currentSelectCount ?? 0;
         ShopGoodsRuntime.Observe(config, shopId == 0 ? null : shopId, itemId);
 
-        var syntheticShop = ShopRuntime.IsSyntheticShop(shopId);
-        if (syntheticShop &&
+        var loaderManagedOffer = ShopRuntime.IsSyntheticShop(shopId) ||
+                                 ShopRuntime.IsNextDayPackageOffer(shopId, itemId);
+        if (loaderManagedOffer &&
             ShopQuantityPurchaseContext.TryGetCurrent(
                 out _,
                 out _,
@@ -610,12 +611,12 @@ internal static class UiShopListUnitPurchasePatch
             nameof(UI_ShopListUnit.TriggerBuyItem),
             "ShopBuy");
 
-        if (!syntheticShop)
+        if (!loaderManagedOffer)
         {
             return true;
         }
 
-        if (!ShopRuntime.TrySettleSyntheticPurchase(
+        if (!ShopRuntime.TrySettleManagedPurchase(
                 __instance,
                 requestedCount,
                 spentMoney,
@@ -625,9 +626,8 @@ internal static class UiShopListUnitPurchasePatch
             __state = null;
         }
 
-        // Mod shops are settled through ModAPI.Inventory and the game's
-        // ChangeMoney method, so never let the native handler apply a second
-        // inventory/currency change.
+        // Loader-managed offers are settled by ShopRuntime. Never let the
+        // native handler apply a second inventory/currency change.
         return false;
     }
 

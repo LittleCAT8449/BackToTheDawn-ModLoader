@@ -1,0 +1,10 @@
+{
+  "id": "dev.backtothedawn.nextdayshoptest",
+  "name": "Next Day Shop Test",
+  "version": "0.1.0",
+  "entryAssembly": "BackToTheDawn.NextDayShopTest.dll",
+  "entryType": "BackToTheDawn.NextDayShopTest.NextDayShopTestMod",
+  "dependencies": [
+    "dev.backtothedawn.loader"
+  ]
+}

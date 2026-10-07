@@ -21,11 +21,13 @@ public sealed class Plugin : BasePlugin
     private ConfigEntry<bool>? _showConsole;
     private ConfigEntry<bool>? _enableRuntimeProbe;
     private ConfigEntry<bool>? _enableLifecycleHooks;
+    private ConfigEntry<bool>? _enablePackageHistoryTrace;
     private ConfigEntry<bool>? _enableRuntimeItemInjection;
     private static ConfigEntry<bool>? _debugMode;
     private System.Action<Scene, LoadSceneMode>? _sceneLoadedHandler;
     private Harmony? _harmony;
     private Harmony? _phoneHarmony;
+    private Harmony? _packageTraceHarmony;
     private ModRegistryRunner? _modRegistryRunner;
     private ModHost? _modHost;
     private LoaderConsole? _loaderConsole;
@@ -102,6 +104,12 @@ public sealed class Plugin : BasePlugin
             true,
             "Log key main-menu and saved-game loading lifecycle calls through HarmonyX.");
 
+        _enablePackageHistoryTrace = Config.Bind(
+            "Diagnostics",
+            "EnablePackageHistoryTrace",
+            false,
+            "Read-only trace of native shop parcel registration, morning availability, and collection.");
+
         _enableRuntimeItemInjection = Config.Bind(
             "Items",
             "EnableRuntimeItemInjection",
@@ -138,6 +146,12 @@ public sealed class Plugin : BasePlugin
             _harmony = new Harmony(PluginGuid);
             _harmony.PatchAll(typeof(Plugin).Assembly);
             Log.LogInfo("Game lifecycle Harmony hooks installed.");
+        }
+
+        if (_enablePackageHistoryTrace.Value)
+        {
+            _packageTraceHarmony = new Harmony(PluginGuid + ".package-trace");
+            PackageHistoryDiagnostics.Install(_packageTraceHarmony);
         }
 
         PhoneRuntimeProviders.Install();
@@ -192,6 +206,8 @@ public sealed class Plugin : BasePlugin
 
     public override bool Unload()
     {
+        _packageTraceHarmony?.UnpatchSelf();
+        _packageTraceHarmony = null;
         _harmony?.UnpatchSelf();
         _harmony = null;
         if (_modRegistryRunner is not null)

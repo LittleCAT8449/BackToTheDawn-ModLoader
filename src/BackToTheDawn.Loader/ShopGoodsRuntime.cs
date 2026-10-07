@@ -103,7 +103,7 @@ internal static class ShopGoodsRuntime
         var cShopType = FindType("c_shop");
         if (cShopType is null)
         {
-            Plugin.Logger?.LogDebug("[ShopGoodsRuntime] c_shop type is not available yet.");
+            Plugin.DebugLog("[ShopGoodsRuntime] c_shop type is not available yet.");
             return 0;
         }
 

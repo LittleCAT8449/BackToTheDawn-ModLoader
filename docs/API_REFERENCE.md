@@ -1493,6 +1493,12 @@ var subscription = phones.SubscribeOptionSelected(choice =>
 });
 ```
 
+如果外部原生界面暂时打断了电话（例如选项打开商店），可在界面关闭后调用 `ResumeCurrentCall` 恢复通话。当前台词有选项时会重新显示选项列表，否则会重播台词。它只恢复匹配的活动通话；电话已挂断或当前仍在等待选项时会返回 `false`：
+
+```csharp
+phones.ResumeCurrentCall("59317", "department-store");
+```
+
 当前无法取得原生选项组件时，会显示 Loader 的后备选项按钮。`48327` 示例号码提供“修理收音机 / 询问营业时间 / 挂断”三个分支。
 
 #### 覆盖游戏台词
@@ -1733,6 +1739,11 @@ var registered = shops.RegisterShop(
     {
         new ShopOffer(new ItemKey("backtothedawn", "apple"), Price: 25, Stock: 20),
         new ShopOffer(new ItemKey("backtothedawn", "painkiller"), Price: 80),
+        new ShopOffer(new ItemKey("backtothedawn", "bandage"), Price: 30, Stock: 10)
+        {
+            Delivery = ShopDeliveryMode.NextDayPackage,
+            DeliverySource = "夜市快递",
+        },
     });
 
 if (!registered.Succeeded)
@@ -1744,9 +1755,31 @@ if (!opened.Succeeded)
     context.Logger.Warning(opened.Message);
 ```
 
-`Stock` 默认 `int.MaxValue`，即非常大的可购买库存。新商店使用现金价格和普通商店商品行；它不会自动添加 NPC、地图交互点或电话入口，模组需要在自己的交互流程中调用 `OpenShop`。
+`Stock` 默认 `int.MaxValue`，即非常大的可购买库存。有限库存售罄后默认在 1 个游戏日后补货；通过 `ShopOffer.RestockDays` 可设置补货间隔，`0` 表示售罄后在商店下一次打开时补货，`2` 表示售罄后经过 2 个游戏日再补货。`0` 按商店窗口会话计算：购买过程中刷新商品列表不会重置库存。补货状态会写入游戏原生销售记录，因此关闭再打开商店不会重置仍处于等待期的库存。
 
-通过 `RegisterShop` 创建的新商店在确认购买后，会调用 `ModApi.Inventory.TryAdd` 把购买数量放进口袋，并通过游戏的现金接口扣除总价；只有物品完整发放且扣款核对成功后才会减少商店库存。口袋空间、库存或现金校验失败时不会完成购买。已有原生商店仍由游戏自己的购买流程结算。
+```csharp
+new ShopOffer(item, Price: 80, Stock: 1) { RestockDays = 3 } // 售罄 3 个游戏日后补货
+new ShopOffer(anotherItem, Price: 40, Stock: 2) { RestockDays = 0 } // 下次重新打开商店时补货
+```
+
+新商店使用现金价格和普通商店商品行；它不会自动添加 NPC、地图交互点或电话入口，模组需要在自己的交互流程中调用 `OpenShop`。
+
+可以用 `SubscribeClosed` 监听由 Loader 打开的原生商店窗口关闭事件。事件会在游戏原生关店流程结束后派发，包含商店 `ShopKey` 和原生商店 ID；在回调中可恢复被商店界面打断的电话台词。订阅应在 Mod 关闭时 `Dispose`：
+
+```csharp
+using BackToTheDawn.PhoneAPI;
+
+var phones = PhoneApi.For(context);
+var shopCloseSubscription = shops.SubscribeClosed(closed =>
+{
+    if (closed.ShopKey == new ShopKey(context.Manifest.Id, "night_market"))
+        phones.ResumeCurrentCall("59317", "department-store");
+});
+```
+
+`ShopOffer.Delivery` 默认是 `ShopDeliveryMode.Immediate`：购买后立即放入口袋。设为 `ShopDeliveryMode.NextDayPackage` 时，Loader 会把订单写入游戏原生包裹记录；商品次日可在游戏包裹界面领取，订单使用现金结算并占用对应商店库存。两种模式都先验证数量、现金和库存，再完成结算；即时模式还会检查口袋空间。已有原生商店中未经 Mod 添加的商品仍由游戏自己的购买流程结算。
+
+次日包裹可以用 `ShopOffer.DeliverySource` 自定义领取界面的来源文字；未填写时默认使用商店 `displayName`。JSON 商店可用对应的 `deliverySource` 字段。Loader 会在配置目录保存新订单的来源并在领取后清理。游戏原生包裹记录不保存商店 ID，因此升级前已经存在的包裹无法从原生记录还原其来源。
 
 如果只需要用数据文件注册新商店，可以使用 [JSON 商店模组格式](API_REFERENCE.md#shop-api-json)。JSON 模式可注册商店和商品，但不会创建 NPC、地图交互点或按钮；打开界面仍需由 C# 模组调用 `ShopApi.OpenShop`。
 
@@ -1769,7 +1802,7 @@ shops.AddGoods(vendingMachine, new ShopOffer(apple, Price: 15, Stock: 5));
 
 - 商店数据写入当前运行时游戏配置，不修改安装文件。关闭或重启游戏后会重新应用模组注册。
 - 新商店可以通过 Mod 代码打开原生 `UI_Shop`。NPC、场景物件和菜单按钮需要模组另行接入。
-- 当前新增商品使用现金价格和普通商店商品行，不包含帮派订购、关系值、表现分、彩票或延迟订单等特殊交易流程。
+- 当前新增商品使用现金价格和普通商店商品行；`NextDayPackage` 仅接入游戏原生的次日包裹领取流程，不包含帮派订购、关系值、表现分、彩票等特殊交易流程。
 - Mod 注册的物品只有在运行时注入成功后才能加入商店；若关闭 `Items/EnableRuntimeItemInjection`，请使用游戏原有物品。
 - Mod 卸载时会移除它添加的商品并恢复它修改的原价。
 
@@ -1819,11 +1852,14 @@ BepInEx/mods/MyShopMod/
     {
       "item": "backtothedawn:apple",
       "price": 25,
-      "stock": 20
+      "stock": 20,
+      "restockDays": 1
     },
     {
       "item": "backtothedawn:painkiller",
-      "price": 80
+      "price": 80,
+      "delivery": "nextDayPackage",
+      "deliverySource": "夜市商店"
     }
   ]
 }
@@ -1839,6 +1875,9 @@ BepInEx/mods/MyShopMod/
 | `offers[].item` | 必须使用完整物品 key，例如 `backtothedawn:apple`。 |
 | `offers[].price` | 必填的整数现金单价，不能小于 `0`。 |
 | `offers[].stock` | 可选库存，不能小于 `0`；省略时视为不限量。 |
+| `offers[].restockDays` | 售罄后的补货等待天数；省略时为 `1`，`0` 表示下次重新打开商店时补货。 |
+| `offers[].delivery` | 可选配送方式：`immediate`（默认，立即入包）或 `nextDayPackage`（次日通过游戏包裹界面领取）。 |
+| `offers[].deliverySource` | 可选包裹来源名称，仅用于 `nextDayPackage`；领取界面会显示“来自 夜市商店”。省略时使用商店的 `displayName`。 |
 
 一个 JSON 文件定义一个商店；可以放多个 `type: shop` 文件。加载器会先解析并校验全部定义，再注册商店；定义无效或注册冲突时会在 `BepInEx/LogOutput.log` 中记录原因，并撤销这个模组已经完成的注册。
 

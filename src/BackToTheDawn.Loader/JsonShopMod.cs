@@ -65,9 +65,9 @@ internal sealed class JsonShopMod : IMod
                 }
 
                 var offers = document.Offers.Select(offer => ConvertOffer(offer)).ToArray();
-                if (offers.Any(offer => offer.Price < 0 || offer.Stock < 0))
+                if (offers.Any(offer => offer.Price < 0 || offer.Stock < 0 || offer.RestockDays < 0))
                 {
-                    throw new InvalidDataException("Shop offer prices and stock must be zero or greater.");
+                    throw new InvalidDataException("Shop offer prices, stock and restockDays must be zero or greater.");
                 }
                 if (offers.Select(offer => offer.ItemKey.ToString())
                     .Distinct(StringComparer.OrdinalIgnoreCase).Count() != offers.Length)
@@ -126,7 +126,21 @@ internal sealed class JsonShopMod : IMod
             throw new InvalidDataException($"Shop offer '{offer.Item}' requires an integer 'price'.");
         }
 
-        return new ShopOffer(itemKey, offer.Price.Value, offer.Stock ?? int.MaxValue);
+        var delivery = offer.Delivery?.Trim().ToLowerInvariant() switch
+        {
+            null or "" or "immediate" => ShopDeliveryMode.Immediate,
+            "nextdaypackage" or "next_day_package" or "next-day-package" => ShopDeliveryMode.NextDayPackage,
+            var value => throw new InvalidDataException(
+                $"Shop offer '{offer.Item}' has unknown delivery mode '{value}'. Use 'immediate' or 'nextDayPackage'."),
+        };
+
+        return new ShopOffer(itemKey, offer.Price.Value, offer.Stock ?? int.MaxValue, delivery)
+        {
+            RestockDays = offer.RestockDays ?? 1,
+            DeliverySource = string.IsNullOrWhiteSpace(offer.DeliverySource)
+                ? null
+                : offer.DeliverySource.Trim(),
+        };
     }
 
     private static IEnumerable<string> EnumerateJsonFiles(string root)
@@ -198,5 +212,8 @@ internal sealed class JsonShopMod : IMod
         public string? Item { get; init; }
         public int? Price { get; init; }
         public int? Stock { get; init; }
+        public int? RestockDays { get; init; }
+        public string? Delivery { get; init; }
+        public string? DeliverySource { get; init; }
     }
 }

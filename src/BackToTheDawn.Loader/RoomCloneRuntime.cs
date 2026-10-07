@@ -258,7 +258,7 @@ internal static class RoomCloneRuntime
         }
         catch (Exception exception)
         {
-            Plugin.Logger?.LogDebug(
+            Plugin.DebugLog(
                 $"[RoomRuntime] Failed to remove clone map {nativeId}: {exception.Message}");
         }
     }

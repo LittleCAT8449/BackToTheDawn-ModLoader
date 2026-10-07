@@ -461,7 +461,7 @@ internal static class TaskRuntime
         }
         catch (Exception exception)
         {
-            Plugin.Logger?.LogDebug(
+            Plugin.DebugLog(
                 $"[Tasks] The game's task configuration is not ready yet: {exception.Message}");
             return false;
         }
@@ -641,7 +641,7 @@ internal static class TaskRuntime
         }
         catch (Exception exception)
         {
-            Plugin.Logger?.LogDebug(
+            Plugin.DebugLog(
                 $"[Tasks] Adding localization key '{key}' will be retried: {exception.Message}");
         }
     }

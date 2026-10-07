@@ -21,6 +21,17 @@ internal static class ShopRuntime
     }
 
     private sealed record PendingOperation(string OwnerId, Action Apply, ShopKey? RegistrationKey = null);
+    private sealed record PendingShopClosedNotification(ShopClosedEvent Event, int PublishAtFrame);
+    private sealed record NextDayPackageOffer(string OwnerId, string Source);
+    private sealed record ManagedOffer(string OwnerId, ShopOffer Offer);
+    private sealed record SaleRecord(int Day, int SellTime, int Count);
+    private sealed class ShopStockSession
+    {
+        internal ShopStockSession(int saleHistoryCount) => SaleHistoryCountAtOpen = saleHistoryCount;
+
+        internal int SaleHistoryCountAtOpen { get; }
+        internal Dictionary<int, int> InitialSoldCounts { get; } = new();
+    }
     private sealed class PriceChange(string ownerId, c_shop row, int previousPrice, int appliedPrice)
     {
         public string OwnerId { get; } = ownerId;
@@ -32,13 +43,18 @@ internal static class ShopRuntime
     private static readonly Dictionary<string, RegisteredShop> Registered = new(StringComparer.OrdinalIgnoreCase);
     private static readonly List<PendingOperation> Pending = new();
     private static readonly List<(string OwnerId, c_shop Row)> AddedRows = new();
+    private static readonly Dictionary<(int ShopId, int ItemId), NextDayPackageOffer> NextDayPackageOffers = new();
+    private static readonly Dictionary<(int ShopId, int GoodsId), ManagedOffer> ManagedOffers = new();
+    private static readonly Dictionary<int, ShopStockSession> StockSessions = new();
     private static readonly List<(string OwnerId, c_shop_name Row)> AddedNames = new();
     private static readonly List<PriceChange> PriceChanges = new();
     private static readonly Queue<int> OpenRequests = new();
+    private static readonly Queue<PendingShopClosedNotification> PendingShopClosedNotifications = new();
     private static readonly HashSet<int> OpenRequestSet = new();
     private static int _nextOpenRetryFrame;
     private static int _openRetryCount;
     private static bool _shopUiRequested;
+    private static int _activeShopId = -1;
 
     internal static void InstallProviders()
     {
@@ -46,6 +62,8 @@ internal static class ShopRuntime
         ShopRegistrationApi.AddGoodsProvider = AddGoods;
         ShopRegistrationApi.SetPriceProvider = SetPrice;
         ShopRegistrationApi.OpenShopProvider = OpenShop;
+        ShopRegistrationApi.SubscriberErrorLogger = exception =>
+            Plugin.Logger?.LogError($"[ShopRuntime] Shop observer failed: {exception}");
     }
 
     internal static void ClearProviders()
@@ -54,11 +72,15 @@ internal static class ShopRuntime
         ShopRegistrationApi.AddGoodsProvider = null;
         ShopRegistrationApi.SetPriceProvider = null;
         ShopRegistrationApi.OpenShopProvider = null;
+        ShopRegistrationApi.SubscriberErrorLogger = null;
+        ShopRegistrationApi.ClearSubscribers();
     }
 
     internal static void Tick()
     {
         if (!GameContextAdapter.IsGameplayReady) return;
+        PublishReadyShopClosedNotifications();
+
         if (Pending.Count > 0)
         {
             foreach (var operation in Pending.ToArray())
@@ -81,12 +103,17 @@ internal static class ShopRuntime
         var shopId = OpenRequests.Peek();
         try
         {
-            if (UI_Shop.singleton is null)
+            var shopWindow = UI_Shop.singleton;
+            // IL2CPP 的 Unity 对象销毁后，托管包装对象可能仍非 null；这里用 Unity 重载的相等运算符判断。
+            if (shopWindow == null)
             {
+                UI_Shop.singleton = null;
                 if (!_shopUiRequested)
                 {
                     UIManage.ShowUINode("UI_Shop");
                     _shopUiRequested = true;
+                    Plugin.Logger?.LogInfo(
+                        "[ShopRuntime] Requested a fresh native shop window because the previous singleton was closed.");
                 }
                 _openRetryCount++;
                 _nextOpenRetryFrame = Time.frameCount + 1;
@@ -95,7 +122,10 @@ internal static class ShopRuntime
             }
             else
             {
-                UI_Shop.singleton.ShowGoodsListByShopId(shopId);
+                _activeShopId = shopId;
+                BeginStockSession(shopId);
+                shopWindow.ShowGoodsListByShopId(shopId);
+                PhoneRuntime.SuspendNativeActionProcessForShop();
             }
         }
         catch (Exception exception)
@@ -131,12 +161,22 @@ internal static class ShopRuntime
 
         foreach (var entry in AddedRows.Where(entry => entry.OwnerId.Equals(ownerId, StringComparison.OrdinalIgnoreCase)).ToArray())
         {
+            NextDayPackageOffers.Remove((entry.Row.shop_id, entry.Row.goods_item));
+            ManagedOffers.Remove((entry.Row.shop_id, entry.Row.goods_id));
             if (ItemIdResolver.TryGetKey(entry.Row.goods_item, out var itemKey) &&
                 ShopCatalog.TryGetByNativeId(entry.Row.shop_id, out var descriptor))
                 ShopGoodsCatalog.Remove(descriptor.Key, itemKey);
             RemoveRows(new[] { entry.Row });
             AddedRows.Remove(entry);
         }
+        foreach (var key in NextDayPackageOffers.Where(entry =>
+                     entry.Value.OwnerId.Equals(ownerId, StringComparison.OrdinalIgnoreCase))
+                 .Select(entry => entry.Key).ToArray())
+            NextDayPackageOffers.Remove(key);
+        foreach (var key in ManagedOffers.Where(entry =>
+                     entry.Value.OwnerId.Equals(ownerId, StringComparison.OrdinalIgnoreCase))
+                 .Select(entry => entry.Key).ToArray())
+            ManagedOffers.Remove(key);
         foreach (var entry in AddedNames.Where(entry => entry.OwnerId.Equals(ownerId, StringComparison.OrdinalIgnoreCase)).ToArray())
         {
             RemoveName(entry.Row.shop_id);
@@ -166,13 +206,59 @@ internal static class ShopRuntime
         Registered.Clear();
         Pending.Clear();
         AddedRows.Clear();
+        NextDayPackageOffers.Clear();
+        ManagedOffers.Clear();
+        StockSessions.Clear();
         AddedNames.Clear();
         PriceChanges.Clear();
         OpenRequests.Clear();
+        PendingShopClosedNotifications.Clear();
         OpenRequestSet.Clear();
         _nextOpenRetryFrame = 0;
         _openRetryCount = 0;
         _shopUiRequested = false;
+        _activeShopId = -1;
+    }
+
+    internal static void NativeShopClosed()
+    {
+        var shopId = _activeShopId;
+        _activeShopId = -1;
+        StockSessions.Remove(shopId);
+        _shopUiRequested = false;
+        if (!ShopCatalog.TryGetByNativeId(shopId, out var descriptor))
+        {
+            return;
+        }
+
+        // UI_Shop.CloseUI 会关闭或销毁当前实例，但游戏不会清理静态 singleton。
+        // 清空它，让下一次 OpenShop 通过 UIManage 创建新的窗口实例。
+        UI_Shop.singleton = null;
+
+        PendingShopClosedNotifications.Enqueue(new PendingShopClosedNotification(
+            new ShopClosedEvent(descriptor.Key, shopId),
+            Time.frameCount + 2));
+        Plugin.Logger?.LogInfo(
+            $"[ShopRuntime] Native shop window closed for '{descriptor.Key}'; " +
+            "shop-close observers will run after the native close flow settles.");
+    }
+
+    private static void PublishReadyShopClosedNotifications()
+    {
+        while (PendingShopClosedNotifications.TryPeek(out var pending) &&
+               Time.frameCount >= pending.PublishAtFrame)
+        {
+            PendingShopClosedNotifications.Dequeue();
+            ShopRegistrationApi.PublishClosed(pending.Event);
+            Plugin.Logger?.LogInfo(
+                $"[ShopRuntime] Published the closed event for '{pending.Event.ShopKey}'.");
+        }
+    }
+
+    internal static void BeginStockSession(int shopId)
+    {
+        var history = GameProcess.singleton?.shopInfo?.GetShopSellHistoryList();
+        StockSessions[shopId] = new ShopStockSession(history?.Count ?? 0);
     }
 
     private static ShopMutationResult RegisterShop(
@@ -215,6 +301,7 @@ internal static class ShopRuntime
                     ConfigData.singleton.shop.Add(row);
                     added.Add(row);
                     AddedRows.Add((ownerId, row));
+                    TrackOffer(ownerId, row, offer, descriptor.DisplayName);
                     ShopGoodsRuntime.Observe(null, row.shop_id, itemId, key);
                 }
             }
@@ -223,6 +310,8 @@ internal static class ShopRuntime
                 foreach (var row in added)
                 {
                     RemoveGoodsObservation(key, row.goods_item);
+                    NextDayPackageOffers.Remove((row.shop_id, row.goods_item));
+                    ManagedOffers.Remove((row.shop_id, row.goods_id));
                     AddedRows.RemoveAll(entry => entry.OwnerId.Equals(ownerId, StringComparison.OrdinalIgnoreCase) && ReferenceEquals(entry.Row, row));
                 }
                 RemoveRows(added);
@@ -303,7 +392,12 @@ internal static class ShopRuntime
             shopNames.Add(nameRow);
             ConfigData.dict_shop_name?.Add(shop.NativeId, nameRow);
             shop.Rows.AddRange(newRows);
-            foreach (var row in newRows) AddedRows.Add((shop.OwnerId, row));
+            for (var index = 0; index < newRows.Count; index++)
+            {
+                var row = newRows[index];
+                AddedRows.Add((shop.OwnerId, row));
+                TrackOffer(shop.OwnerId, row, shop.Offers[index], shop.DisplayName);
+            }
             AddedNames.Add((shop.OwnerId, nameRow));
             foreach (var row in newRows)
                 ShopGoodsRuntime.Observe(null, shop.NativeId, row.goods_item, shop.Key);
@@ -313,7 +407,12 @@ internal static class ShopRuntime
         }
         catch
         {
-            foreach (var row in newRows) RemoveGoodsObservation(shop.Key, row.goods_item);
+            foreach (var row in newRows)
+            {
+                RemoveGoodsObservation(shop.Key, row.goods_item);
+                NextDayPackageOffers.Remove((row.shop_id, row.goods_item));
+                ManagedOffers.Remove((row.shop_id, row.goods_id));
+            }
             RemoveRows(newRows);
             RemoveName(shop.NativeId);
             AddedRows.RemoveAll(entry => entry.OwnerId.Equals(shop.OwnerId, StringComparison.OrdinalIgnoreCase) && newRows.Any(row => ReferenceEquals(entry.Row, row)));
@@ -408,7 +507,189 @@ internal static class ShopRuntime
         ShopCatalog.TryGetByNativeId(shopId, out var descriptor) &&
         descriptor.Source == ShopSource.Synthetic;
 
-    internal static bool TrySettleSyntheticPurchase(
+    internal static bool IsNextDayPackageOffer(int shopId, int itemId) =>
+        NextDayPackageOffers.ContainsKey((shopId, itemId));
+
+    internal static bool TryGetNextDayPackageSource(int shopId, int itemId, out string source)
+    {
+        if (NextDayPackageOffers.TryGetValue((shopId, itemId), out var offer))
+        {
+            source = offer.Source;
+            return true;
+        }
+
+        source = string.Empty;
+        return false;
+    }
+
+    private static void TrackDelivery(string ownerId, c_shop row, ShopOffer offer, string defaultSource)
+    {
+        var key = (row.shop_id, row.goods_item);
+        if (offer.Delivery == ShopDeliveryMode.NextDayPackage)
+        {
+            var source = string.IsNullOrWhiteSpace(offer.DeliverySource)
+                ? defaultSource
+                : offer.DeliverySource.Trim();
+            if (string.IsNullOrWhiteSpace(source))
+                source = "大爆炸披萨";
+            NextDayPackageOffers[key] = new NextDayPackageOffer(ownerId, source);
+        }
+        else
+            NextDayPackageOffers.Remove(key);
+    }
+
+    private static void TrackOffer(string ownerId, c_shop row, ShopOffer offer, string defaultSource)
+    {
+        ManagedOffers[(row.shop_id, row.goods_id)] = new ManagedOffer(ownerId, offer);
+        TrackDelivery(ownerId, row, offer, defaultSource);
+    }
+
+    internal static void RecordManagedSale(int shopId, int goodsId, int count, int spentMoney)
+    {
+        var shopInfo = GameProcess.singleton?.shopInfo;
+        if (shopInfo is null)
+        {
+            throw new InvalidOperationException("The game's shop sale history is unavailable.");
+        }
+
+        // 原生商店每次生成 ShopGoods 时会从这份存档记录恢复 soldCount。
+        shopInfo.AddShopSellHistory(shopId, goodsId, count, spentMoney);
+    }
+
+    internal static void ApplyManagedStock(
+        int shopId,
+        Il2CppSystem.Collections.Generic.List<ShopGoods>? goodsList)
+    {
+        if (goodsList is null || ManagedOffers.Keys.All(key => key.ShopId != shopId))
+        {
+            return;
+        }
+
+        try
+        {
+            var process = GameProcess.singleton;
+            var shopInfo = process?.shopInfo;
+            var history = shopInfo?.GetShopSellHistoryList();
+            if (process is null || history is null)
+            {
+                return;
+            }
+
+            var currentDay = TimeManage.GetWakeDayByAllGameTime(process.gameTime);
+            StockSessions.TryGetValue(shopId, out var session);
+            foreach (var goods in goodsList)
+            {
+                var row = goods?.shopConfig;
+                if (goods is null || row is null ||
+                    !ManagedOffers.TryGetValue((shopId, row.goods_id), out var managed))
+                {
+                    continue;
+                }
+
+                var soldCount = managed.Offer.RestockDays == 0 && session is not null
+                    ? CalculateSessionSoldCount(
+                        history, session, shopId, row.goods_id, managed.Offer, currentDay)
+                    : CalculateSoldCount(history, shopId, row.goods_id, managed.Offer, currentDay);
+                goods.soldCount = soldCount;
+                Plugin.DebugLog(
+                    $"[ShopRuntime] Restored stock state for shop={shopId}, goods={row.goods_id}: " +
+                    $"sold={soldCount}/{managed.Offer.Stock}, restockDays={managed.Offer.RestockDays}.");
+            }
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger?.LogWarning(
+                $"[ShopRuntime] Restoring stock for shop {shopId} failed: {exception.Message}");
+        }
+    }
+
+    private static int CalculateSessionSoldCount(
+        Il2CppSystem.Collections.Generic.List<ShopGoodsSellHistory> history,
+        ShopStockSession session,
+        int shopId,
+        int goodsId,
+        ShopOffer offer,
+        int currentDay)
+    {
+        if (!session.InitialSoldCounts.TryGetValue(goodsId, out var initialSoldCount))
+        {
+            initialSoldCount = CalculateSoldCount(
+                history, shopId, goodsId, offer, currentDay);
+            session.InitialSoldCounts[goodsId] = initialSoldCount;
+        }
+
+        long soldDuringSession = 0;
+        for (var index = Math.Clamp(session.SaleHistoryCountAtOpen, 0, history.Count);
+             index < history.Count;
+             index++)
+        {
+            var sale = history[index];
+            if (sale is not null && sale.shopId == shopId && sale.goodsId == goodsId && sale.sellCount > 0)
+            {
+                soldDuringSession += sale.sellCount;
+            }
+        }
+
+        return (int)Math.Min(offer.Stock, initialSoldCount + soldDuringSession);
+    }
+
+    private static int CalculateSoldCount(
+        Il2CppSystem.Collections.Generic.List<ShopGoodsSellHistory> history,
+        int shopId,
+        int goodsId,
+        ShopOffer offer,
+        int currentDay)
+    {
+        if (offer.Stock <= 0)
+        {
+            return 0;
+        }
+
+        var sales = new List<SaleRecord>();
+        foreach (var entry in history)
+        {
+            if (entry is null || entry.shopId != shopId || entry.goodsId != goodsId || entry.sellCount <= 0)
+            {
+                continue;
+            }
+
+            var day = TimeManage.GetWakeDayByAllGameTime(entry.sellTime);
+            sales.Add(new SaleRecord(day, entry.sellTime, entry.sellCount));
+        }
+        sales.Sort(static (left, right) => left.SellTime.CompareTo(right.SellTime));
+
+        long soldCount = 0;
+        int? soldOutDay = null;
+        foreach (var sale in sales)
+        {
+            if (soldOutDay.HasValue && sale.Day - soldOutDay.Value >= offer.RestockDays)
+            {
+                soldCount = 0;
+                soldOutDay = null;
+            }
+
+            if (soldOutDay.HasValue)
+            {
+                continue;
+            }
+
+            soldCount = Math.Min(offer.Stock, soldCount + sale.Count);
+            if (soldCount >= offer.Stock)
+            {
+                soldCount = offer.Stock;
+                soldOutDay = sale.Day;
+            }
+        }
+
+        if (soldOutDay.HasValue && currentDay - soldOutDay.Value >= offer.RestockDays)
+        {
+            soldCount = 0;
+        }
+
+        return (int)Math.Clamp(soldCount, 0L, (long)offer.Stock);
+    }
+
+    internal static bool TrySettleManagedPurchase(
         UI_ShopListUnit row,
         int requestedCount,
         int requestedCost,
@@ -423,9 +704,10 @@ internal static class ShopRuntime
             ? requestedCount
             : row.widgetItemListSelectCount?.currentSelectCount ?? 0;
 
-        if (!IsSyntheticShop(shopId))
+        var nextDayPackage = IsNextDayPackageOffer(shopId, itemId);
+        if (!IsSyntheticShop(shopId) && !nextDayPackage)
         {
-            return RejectPurchase(row, "这不是模组注册的商店。", out failureReason);
+            return RejectPurchase(row, "这不是由模组管理的商品。", out failureReason);
         }
 
         if (goods is null || shopConfig is null || itemId <= 0 || count <= 0)
@@ -464,6 +746,12 @@ internal static class ShopRuntime
         if (moneyBefore < totalCost)
         {
             return RejectPurchase(row, "现金不足。", out failureReason);
+        }
+
+        if (nextDayPackage)
+        {
+            return ShopParcelSettlement.TrySettle(
+                row, goods, package, player, shopId, itemId, count, unitPrice, totalCost, out failureReason);
         }
 
         if (!package.CheckCanAddItem(itemId, count, PlaceType.Pocket))
@@ -534,12 +822,16 @@ internal static class ShopRuntime
             return RejectPurchase(row, "扣款金额异常，已撤销商品发放。", out failureReason);
         }
 
+        var soldBefore = goods.soldCount;
         try
         {
             goods.soldCount += count;
+            RecordManagedSale(shopId, shopConfig.goods_id, count, totalCost);
         }
         catch (Exception exception)
         {
+            try { goods.soldCount = soldBefore; }
+            catch { }
             try
             {
                 package.ChangeMoney(totalCost, ThingChangeReason.Buy);
